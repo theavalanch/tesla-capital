@@ -1,0 +1,230 @@
+// Prisma Schema for Tesla Investment Platform
+// Datasource supports PostgreSQL for production, with SQLite compatibility for local standalone execution.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+enum KycStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum LedgerType {
+  DEPOSIT
+  WITHDRAWAL
+  BUY_STOCK
+  SELL_STOCK
+  ADMIN_ADJUSTMENT
+  FEE
+  DIVIDEND
+}
+
+enum DepositStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+enum WithdrawalStatus {
+  PENDING_REVIEW
+  VERIFICATION_REQUIRED
+  APPROVED
+  PROCESSING
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+model User {
+  id               String               @id @default(uuid())
+  email            String               @unique
+  passwordHash     String
+  fullName         String
+  role             Role                 @default(USER)
+  status           UserStatus           @default(ACTIVE)
+  isVerified       Boolean              @default(false)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  profile          UserProfile?
+  account          Account?
+  depositRequests  DepositRequest[]
+  withdrawals      WithdrawalRequest[]
+  conversations    Conversation[]
+  messages         Message[]
+  notifications    Notification[]
+  auditLogs        AuditLog[]           @relation("TargetUser")
+  adminAuditLogs   AuditLog[]           @relation("AdminUser")
+}
+
+model UserProfile {
+  id             String     @id @default(uuid())
+  userId         String     @unique
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phoneNumber    String?
+  country        String     @default("United States")
+  address        String?
+  kycStatus      KycStatus  @default(PENDING)
+  kycDocumentUrl String?
+  updatedAt      DateTime   @updatedAt
+}
+
+model Account {
+  id               String        @id @default(uuid())
+  userId           String        @unique
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  availableCash    Decimal       @default(0.0)
+  investedCapital  Decimal       @default(0.0)
+  realizedPnl      Decimal       @default(0.0)
+  currency         String        @default("USD")
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  positions        Position[]
+  ledgerEntries    LedgerEntry[]
+}
+
+model Position {
+  id           String   @id @default(uuid())
+  accountId    String
+  account      Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  symbol       String   @default("TSLA")
+  shares       Decimal  @default(0.0)
+  averageCost  Decimal  @default(0.0)
+  currentPrice Decimal  @default(0.0)
+  updatedAt    DateTime @updatedAt
+
+  @@unique([accountId, symbol])
+}
+
+model LedgerEntry {
+  id            String     @id @default(uuid())
+  accountId     String
+  account       Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  type          LedgerType
+  amount        Decimal
+  balanceBefore Decimal
+  balanceAfter  Decimal
+  reference     String     @unique
+  description   String
+  metadata      String?    // JSON string for extra audit context
+  createdAt     DateTime   @default(now())
+}
+
+model DepositRequest {
+  id              String        @id @default(uuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount          Decimal
+  method          String        // WIRE, ACH, CRYPTO_USDT, CRYPTO_BTC, CARD
+  reference       String        @unique
+  status          DepositStatus @default(PENDING_REVIEW)
+  paymentDetails  String?       // JSON details (tx hash, bank reference, etc.)
+  rejectionReason String?
+  createdAt       DateTime      @default(now())
+  processedAt     DateTime?
+}
+
+model WithdrawalRequest {
+  id                 String           @id @default(uuid())
+  userId             String
+  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount             Decimal
+  fee                Decimal          @default(0.0)
+  netPayout          Decimal
+  method             String           // WIRE, ACH, CRYPTO_USDT, CRYPTO_BTC
+  destinationMasked  String           // e.g. "Chase Bank ****4821" or "0x7a2...98f"
+  destinationDetails String           // Encrypted or structured details
+  reference          String           @unique
+  status             WithdrawalStatus @default(PENDING_REVIEW)
+  rejectionReason    String?
+  payoutReference    String?
+  deadlineAt         DateTime         // 72-hour target deadline
+  createdAt          DateTime         @default(now())
+  processedAt        DateTime?
+}
+
+model Conversation {
+  id               String    @id @default(uuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject          String    @default("Tesla Investment Support")
+  status           String    @default("OPEN") // OPEN, CLOSED
+  unreadUserCount  Int       @default(0)
+  unreadAdminCount Int       @default(0)
+  lastMessageAt    DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+
+  messages         Message[]
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  senderRole     Role
+  content        String
+  isRead         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("INFO") // INFO, SUCCESS, WARNING, ALERT
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  adminId      String
+  admin        User     @relation("AdminUser", fields: [adminId], references: [id])
+  adminEmail   String
+  targetUserId String?
+  targetUser   User?    @relation("TargetUser", fields: [targetUserId], references: [id])
+  action       String   // BALANCE_ADJUSTMENT, DEPOSIT_APPROVE, WITHDRAWAL_APPROVE, USER_SUSPEND, etc.
+  details      String   // Full JSON snapshot of previous/new states
+  ipAddress    String?
+  createdAt    DateTime @default(now())
+}
+
+model PlatformSettings {
+  id               String   @id @default("default")
+  minDeposit       Decimal  @default(100.0)
+  minWithdrawal    Decimal  @default(50.0)
+  wireFee          Decimal  @default(15.0)
+  achFee           Decimal  @default(0.0)
+  cryptoFeePercent Decimal  @default(0.5)
+  marketProvider   String   @default("SIMULATED_FINNHUB")
+  finnhubApiKey    String?
+  simulationMode   Boolean  @default(true)
+  maintenanceMode  Boolean  @default(false)
+  updatedAt        DateTime @updatedAt
+}
