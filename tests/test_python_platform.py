@@ -64,6 +64,13 @@ def main():
         assert data["user"]["role"] == "ADMIN", "Expected ADMIN role"
         assert "token" in data, "Token missing"
         admin_token = data["token"]
+        
+        # Ensure investor has sufficient testing liquidity for repeatable tests
+        make_req("/api/admin/adjust-balance", method="POST", token=admin_token, data={
+            "userId": "user_jason_evans",
+            "amount": 2500.00,
+            "reason": "Replenish test liquidity harness"
+        })
     if run_test("Admin Login (Tesla Operations Admin)", test_admin_login): passed += 1
 
     # Test 3: Portfolio Retrieval

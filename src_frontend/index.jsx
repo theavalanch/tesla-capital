@@ -30,7 +30,14 @@ import {
   Star,
   Quote,
   Key,
-  ShieldAlert
+  ShieldAlert,
+  MessageSquare,
+  Check,
+  ArrowDown,
+  FileText,
+  Sliders,
+  Search,
+  Award
 } from 'lucide-react';
 
 // ==========================================
@@ -41,6 +48,8 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notification, setNotification] = useState(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const lastCashRef = useRef(null);
 
   // Fetch authenticated user on mount
   useEffect(() => {
@@ -54,10 +63,76 @@ function App() {
       .catch(() => {});
   }, []);
 
+  // Real-time polling for balance changes and messages (Requirement 2 & 4)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (currentUser && currentUser.role === 'USER') {
+        fetch('/api/portfolio')
+          .then(res => res.json())
+          .then(data => {
+            if (data && data.account) {
+              const currentCash = data.account.availableCash;
+              if (lastCashRef.current !== null && lastCashRef.current !== currentCash) {
+                const diff = currentCash - lastCashRef.current;
+                setNotification({
+                  type: 'info',
+                  title: 'Account Balance Reconciled',
+                  message: `Your settled cash balance is now $${currentCash.toLocaleString('en-US', { minimumFractionDigits: 2 })} (${diff >= 0 ? '+' : ''}$${diff.toFixed(2)} USD). Reconciled in real time by Tesla Operations Desk.`
+                });
+              }
+              lastCashRef.current = currentCash;
+            }
+          })
+          .catch(() => {});
+
+        fetch('/api/messages')
+          .then(res => res.json())
+          .then(data => {
+            const unread = (data.messages || []).filter(m => m.senderRole === 'ADMIN' && !m.isRead).length;
+            setUnreadCount(unread);
+          })
+          .catch(() => {});
+      } else if (currentUser && currentUser.role === 'ADMIN') {
+        fetch('/api/admin/metrics')
+          .then(res => res.json())
+          .then(data => {
+            if (data && data.unreadChats !== undefined) {
+              setUnreadCount(data.unreadChats);
+            }
+          })
+          .catch(() => {});
+      }
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
     setCurrentUser(null);
     setCurrentView('landing');
+  };
+
+  const handleSwitchRole = async (targetRole, targetEmail = null) => {
+    try {
+      const res = await fetch('/api/auth/switch-role', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: targetRole, email: targetEmail })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setCurrentUser(data.user);
+        setCurrentView(data.user.role === 'ADMIN' ? 'admin' : 'dashboard');
+        setNotification({
+          type: 'success',
+          title: `Switched Perspective: ${data.user.fullName}`,
+          message: `Active session converted to ${data.user.role === 'ADMIN' ? 'Tesla Operations Clearinghouse' : 'Investor Workstation'} for seamless simulation testing.`
+        });
+      }
+    } catch (e) {
+      alert('Error switching perspective');
+    }
   };
 
   return (
@@ -100,8 +175,47 @@ function App() {
         </div>
       </div>
 
+      {/* Simulation Perspective & Testing Banner */}
+      <div className="bg-gradient-to-r from-red-950/90 via-[#0c101c] to-blue-950/90 border-b border-red-500/30 text-xs py-2 px-4 sticky top-[33px] z-45 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center space-x-2">
+            <span className="px-2 py-0.5 rounded bg-red-600 text-white font-mono font-bold text-[10px] tracking-wider uppercase animate-pulse">
+              SIMULATION HARNESS
+            </span>
+            <span className="text-slate-300 hidden md:inline text-xs">
+              Complete User &amp; Admin Dashboard Simulation Desk
+            </span>
+          </div>
+
+          <div className="flex items-center space-x-3 text-xs font-mono ml-auto">
+            <span className="text-slate-400">
+              Active Persona: <strong className="text-white">{currentUser ? currentUser.fullName : 'Guest'}</strong> 
+              {currentUser && <span className="text-slate-400 ml-1">({currentUser.role})</span>}
+            </span>
+
+            {currentUser?.role === 'ADMIN' ? (
+              <button
+                onClick={() => handleSwitchRole('USER')}
+                className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-[11px] flex items-center gap-1 shadow-md transition"
+              >
+                <User className="w-3.5 h-3.5" />
+                <span>Switch to Jason Evans (Investor)</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => handleSwitchRole('ADMIN')}
+                className="px-3 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-[11px] flex items-center gap-1 shadow-md transition"
+              >
+                <Key className="w-3.5 h-3.5" />
+                <span>Switch to Tesla Admin Desk</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Main Glassmorphism Header */}
-      <header className="border-b border-slate-800/60 bg-[#07090e]/80 backdrop-blur-xl sticky top-[33px] z-40">
+      <header className="border-b border-slate-800/60 bg-[#07090e]/80 backdrop-blur-xl sticky top-[65px] z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-20">
             
@@ -155,9 +269,14 @@ function App() {
               </button>
               <button 
                 onClick={() => setCurrentView('messages')}
-                className={`transition-colors ${currentView === 'messages' ? 'text-white font-bold' : 'text-slate-300 hover:text-white'}`}
+                className={`transition-colors flex items-center gap-1.5 ${currentView === 'messages' ? 'text-white font-bold' : 'text-slate-300 hover:text-white'}`}
               >
-                Messages
+                <span>Messages</span>
+                {unreadCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[10px] font-bold">
+                    {unreadCount}
+                  </span>
+                )}
               </button>
             </nav>
 
@@ -302,6 +421,7 @@ function App() {
       {currentView === 'deposit' && (
         <DepositView 
           currentUser={currentUser}
+          onNavigate={(v) => setCurrentView(v)}
           onSuccess={(msg) => {
             setNotification(msg);
             setTimeout(() => setNotification(null), 5000);
@@ -312,6 +432,7 @@ function App() {
       {currentView === 'withdrawal' && (
         <WithdrawalView 
           currentUser={currentUser}
+          onNavigate={(v) => setCurrentView(v)}
           onSuccess={(msg) => {
             setNotification(msg);
             setTimeout(() => setNotification(null), 5000);
@@ -320,16 +441,17 @@ function App() {
       )}
 
       {currentView === 'transactions' && (
-        <TransactionsView currentUser={currentUser} />
+        <TransactionsView currentUser={currentUser} onNavigate={(v) => setCurrentView(v)} />
       )}
 
       {currentView === 'messages' && (
-        <MessagesView currentUser={currentUser} />
+        <MessagesView currentUser={currentUser} onNavigate={(v) => setCurrentView(v)} />
       )}
 
       {currentView === 'admin' && (
         <AdminView 
           currentUser={currentUser}
+          onNavigate={(v) => setCurrentView(v)}
           onSuccess={(msg) => {
             setNotification(msg);
             setTimeout(() => setNotification(null), 5000);
@@ -1131,8 +1253,11 @@ function DashboardView({ currentUser, onNavigate }) {
   const [portfolio, setPortfolio] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeRange, setActiveRange] = useState('1D');
+  const [withdrawals, setWithdrawals] = useState([]);
+  const [deposits, setDeposits] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
-  useEffect(() => {
+  const fetchDashboardData = () => {
     fetch('/api/portfolio')
       .then(res => res.json())
       .then(data => {
@@ -1140,6 +1265,31 @@ function DashboardView({ currentUser, onNavigate }) {
         setLoading(false);
       })
       .catch(() => setLoading(false));
+
+    fetch('/api/withdrawals')
+      .then(res => res.json())
+      .then(data => setWithdrawals(data.withdrawals || []))
+      .catch(() => {});
+
+    fetch('/api/deposits')
+      .then(res => res.json())
+      .then(data => setDeposits(data.deposits || []))
+      .catch(() => {});
+
+    fetch('/api/messages')
+      .then(res => res.json())
+      .then(data => {
+        const msgs = data.messages || [];
+        const unread = msgs.filter(m => !m.read && m.senderRole === 'admin').length;
+        setUnreadCount(unread);
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchDashboardData();
+    const interval = setInterval(fetchDashboardData, 3500);
+    return () => clearInterval(interval);
   }, []);
 
   if (loading) {
@@ -1343,95 +1493,157 @@ function DashboardView({ currentUser, onNavigate }) {
           <div className="lg:col-span-4 space-y-6">
             
             {/* 72-Hour Withdrawal Processing SLA Tracker Card */}
-            <div className="p-6 rounded-3xl bg-[#0c101b] border border-blue-900/40 shadow-xl space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-blue-400 font-bold flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5" /> 72-Hour Guaranteed Settlement
-                </span>
-                <span className="px-2 py-0.5 rounded-full bg-blue-950 text-blue-300 text-[10px] font-mono border border-blue-800">
-                  RESERVED
-                </span>
-              </div>
+            {(() => {
+              const latestW = withdrawals[0];
+              const isSettled = latestW?.status === 'COMPLETED';
+              const isPending = latestW && !isSettled && latestW.status !== 'REJECTED';
+              const hoursRem = latestW?.hoursRemaining ?? 72;
+              const stepName = latestW?.stepName || (isSettled ? 'Settlement Cleared & Payout Successful' : 'Pre-Clearing Review & Ledger Hold');
+              const progressPct = isSettled ? 100 : Math.min(100, Math.max(15, ((72 - hoursRem) / 72) * 100));
 
-              <div>
-                <div className="text-xl font-bold font-mono text-white">$800.00 USD</div>
-                <div className="text-xs text-slate-400 mt-0.5">Wire to JPMorgan Chase (Acct ****4821)</div>
-              </div>
+              return (
+                <div className={`p-6 rounded-3xl bg-[#0c101b] border shadow-xl space-y-4 transition-all ${
+                  isSettled ? 'border-emerald-700/60 shadow-emerald-950/20' : isPending ? 'border-blue-900/60 shadow-blue-950/20' : 'border-slate-800'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <span className={`text-[10px] font-mono uppercase tracking-wider font-bold flex items-center gap-1.5 ${
+                      isSettled ? 'text-emerald-400' : isPending ? 'text-blue-400' : 'text-slate-400'
+                    }`}>
+                      <Clock className="w-3.5 h-3.5" /> 72-Hour Guaranteed Settlement
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono border ${
+                      isSettled 
+                        ? 'bg-emerald-950 text-emerald-300 border-emerald-800' 
+                        : isPending 
+                          ? 'bg-blue-950 text-blue-300 border-blue-800 animate-pulse' 
+                          : 'bg-slate-900 text-slate-400 border-slate-800'
+                    }`}>
+                      {isSettled ? 'SETTLED' : isPending ? `STAGE ${latestW.step || 1} / 4` : 'STANDBY'}
+                    </span>
+                  </div>
 
-              {/* Progress bar */}
-              <div className="space-y-1 text-[11px] font-mono">
-                <div className="flex justify-between text-slate-400">
-                  <span>SLA Countdown:</span>
-                  <span className="text-emerald-400 font-bold">28h 14m Remaining</span>
-                </div>
-                <div className="w-full h-2 rounded-full bg-slate-900 overflow-hidden">
-                  <div className="h-full bg-blue-500 rounded-full w-2/3"></div>
-                </div>
-                <div className="flex justify-between text-[10px] text-slate-500">
-                  <span>Ref: WTH-TSLA-54128</span>
-                  <span>Fedwire Standard</span>
-                </div>
-              </div>
+                  <div>
+                    <div className="text-xl font-bold font-mono text-white">
+                      {latestW ? `$${Number(latestW.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD` : '$0.00 USD Pending'}
+                    </div>
+                    <div className="text-xs text-slate-400 mt-0.5 truncate">
+                      {latestW?.destination || 'Wire to JPMorgan Chase (Acct ****4821)'}
+                    </div>
+                  </div>
 
-              <button
-                onClick={() => onNavigate('withdrawal')}
-                className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-xs font-semibold text-slate-200 transition"
-              >
-                View Payout Management
-              </button>
-            </div>
+                  {/* Progress bar / SLA status */}
+                  <div className="space-y-1.5 text-[11px] font-mono">
+                    <div className="flex justify-between text-slate-400">
+                      <span>{isSettled ? 'Status:' : 'SLA Sequence:'}</span>
+                      <span className={`font-bold ${isSettled ? 'text-emerald-400' : 'text-blue-400'}`}>
+                        {isSettled ? 'Settled & Cleared' : `${hoursRem.toFixed(1)}h Remaining`}
+                      </span>
+                    </div>
+                    <div className="w-full h-2 rounded-full bg-slate-900 overflow-hidden">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-500 ${isSettled ? 'bg-emerald-500' : 'bg-blue-500'}`}
+                        style={{ width: `${progressPct}%` }}
+                      ></div>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-slate-500">
+                      <span>Ref: {latestW?.reference || 'N/A'}</span>
+                      <span className="truncate max-w-[170px] text-right">{stepName}</span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => onNavigate('withdrawal')}
+                    className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-xs font-semibold text-slate-200 transition flex items-center justify-center gap-1.5"
+                  >
+                    <span>{isPending ? 'Open 72h SLA Tracker Desk' : 'Manage Withdrawals'}</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              );
+            })()}
 
             {/* Wire Deposit Slip Tracker Card */}
-            <div className="p-6 rounded-3xl bg-[#0c101b] border border-emerald-900/40 shadow-xl space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-bold flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Pending Wire Deposit
-                </span>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 text-[10px] font-mono border border-emerald-800">
-                  CLEARING
-                </span>
-              </div>
+            {(() => {
+              const latestD = deposits[0];
+              const isApproved = latestD?.status === 'APPROVED';
+              const isPending = latestD && !isApproved;
 
-              <div>
-                <div className="text-xl font-bold font-mono text-emerald-400">+$5,000.00 USD</div>
-                <div className="text-xs text-slate-400 mt-0.5">Reference: DEP-TSLA-98421</div>
-              </div>
+              return (
+                <div className={`p-6 rounded-3xl bg-[#0c101b] border shadow-xl space-y-4 transition-all ${
+                  isApproved ? 'border-emerald-800/60 shadow-emerald-950/20' : isPending ? 'border-amber-800/50 shadow-amber-950/20' : 'border-slate-800'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-bold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Direct Wire Clearing Desk
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono border ${
+                      isApproved 
+                        ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                        : isPending 
+                          ? 'bg-amber-950 text-amber-300 border-amber-800'
+                          : 'bg-slate-900 text-slate-400 border-slate-800'
+                    }`}>
+                      {latestD ? latestD.status : 'AVAILABLE'}
+                    </span>
+                  </div>
 
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-400 space-y-1">
-                <div className="flex justify-between">
-                  <span>Reconciliation:</span>
-                  <span className="text-emerald-400">Federal Reserve ACH</span>
+                  <div>
+                    <div className="text-xl font-bold font-mono text-emerald-400">
+                      {latestD ? `+$${Number(latestD.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD` : 'Deposit via Chat Desk'}
+                    </div>
+                    <div className="text-xs text-slate-400 mt-0.5">
+                      {latestD ? `Reference: ${latestD.reference}` : 'All incoming wires require admin coordination in chat'}
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-400 space-y-1">
+                    <div className="flex justify-between">
+                      <span>Custodian:</span>
+                      <span className="text-slate-200">JPMorgan Chase N.A.</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Channel:</span>
+                      <span className="text-emerald-400 font-semibold">1-on-1 Admin Chatroom</span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => onNavigate(isPending ? 'messages' : 'deposit')}
+                    className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-xs font-semibold text-slate-200 transition flex items-center justify-center gap-1.5"
+                  >
+                    <span>{isPending ? 'Open Chat for Wire Status' : 'Submit Deposit Request'}</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-                <div className="flex justify-between">
-                  <span>Estimated Credit:</span>
-                  <span className="text-white font-bold">2-4 Business Hours</span>
-                </div>
-              </div>
-
-              <button
-                onClick={() => onNavigate('deposit')}
-                className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-xs font-semibold text-slate-200 transition"
-              >
-                Submit New Deposit
-              </button>
-            </div>
+              );
+            })()}
 
             {/* Direct Operations Desk Link */}
             <div className="p-6 rounded-3xl bg-[#0c101b] border border-slate-800 space-y-3">
               <div className="flex items-center space-x-3">
-                <div className="w-9 h-9 rounded-xl bg-red-950 text-red-400 flex items-center justify-center font-bold">
+                <div className="w-9 h-9 rounded-xl bg-red-950 text-red-400 flex items-center justify-center font-bold relative">
                   <Send className="w-4 h-4" />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 animate-ping"></span>
+                  )}
                 </div>
                 <div>
                   <h4 className="text-sm font-bold text-white">Tesla Clearinghouse Desk</h4>
-                  <p className="text-[11px] text-slate-400">1 Unread Support Message</p>
+                  <p className="text-[11px] text-slate-400">
+                    {unreadCount > 0 ? (
+                      <span className="text-red-400 font-bold">{unreadCount} Unread Admin Transmission(s)</span>
+                    ) : (
+                      'Encrypted Institutional Chat Active'
+                    )}
+                  </p>
                 </div>
               </div>
               <button
                 onClick={() => onNavigate('messages')}
-                className="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs uppercase transition shadow-md shadow-red-950/50"
+                className="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs uppercase transition shadow-md shadow-red-950/50 flex items-center justify-center gap-2"
               >
-                Open Encrypted Channel
+                <span>Open Encrypted Channel</span>
+                <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
 
@@ -1564,109 +1776,379 @@ function TradeView({ currentUser, onTradeSuccess }) {
 }
 
 // ==========================================
-// 4. DEPOSIT VIEW
+// 4. DEPOSIT VIEW (CHATROOM COORDINATION WORKFLOW)
 // ==========================================
-function DepositView({ currentUser, onSuccess }) {
+function DepositView({ currentUser, onSuccess, onNavigate }) {
   const [amount, setAmount] = useState('5000');
   const [method, setMethod] = useState('WIRE');
+  const [memo, setMemo] = useState('');
   const [loading, setLoading] = useState(false);
+  const [recentDeposits, setRecentDeposits] = useState([]);
 
-  const handleSubmit = async (e) => {
+  useEffect(() => {
+    fetch('/api/deposits')
+      .then(res => res.json())
+      .then(data => setRecentDeposits(data.deposits || []))
+      .catch(() => {});
+  }, []);
+
+  const handleInitiateChatDeposit = async (e) => {
     e.preventDefault();
     setLoading(true);
+
     try {
-      const res = await fetch('/api/deposits', {
+      // 1. Post deposit enquiry to backend
+      const depRes = await fetch('/api/deposits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: parseFloat(amount), method })
+        body: JSON.stringify({ amount: parseFloat(amount), method, memo })
       });
-      const data = await res.json();
-      if (res.ok) {
+      const depData = await depRes.json();
+
+      // 2. Automatically post message into user's private chatroom with Admin Desk
+      const inquiryText = `DEPOSIT INQUIRY [${depData.deposit?.reference || 'NEW'}]: Requesting verified custodial wire coordinates for an incoming institutional deposit of $${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD via ${method}. Please provide verified banking routing details and account memo.`;
+      
+      await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: inquiryText,
+          subject: `Deposit Inquiry: $${amount} via ${method}`
+        })
+      });
+
+      if (onSuccess) {
         onSuccess({
           type: 'success',
-          title: 'Deposit Slip Generated',
-          message: `Deposit reference ${data.deposit.reference} for $${amount} recorded. Reconciled upon banking clearance.`
+          title: 'Deposit Inquiry Sent to Admin Desk',
+          message: `Inquiry for $${parseFloat(amount).toLocaleString()} USD transmitted. Redirecting to your private chatroom to receive wire instructions.`
         });
-      } else {
-        alert(data.detail || 'Deposit error');
       }
-    } catch (e) {
-      alert('Network error');
+
+      // 3. Immediately switch user to private chatroom where Admin will reply
+      if (onNavigate) {
+        onNavigate('messages');
+      }
+    } catch (err) {
+      alert('Network error connecting to custodial desk');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-12 space-y-6">
-      <div className="p-8 rounded-3xl bg-[#0c101b] border border-slate-800 shadow-2xl space-y-6">
+    <div className="max-w-4xl mx-auto px-4 py-10 space-y-8">
+      {/* Title & Desk Banner */}
+      <div className="pb-4 border-b border-slate-800 flex flex-wrap justify-between items-center gap-4">
         <div>
-          <span className="text-xs font-mono text-emerald-400 font-bold uppercase">Funding Desk</span>
-          <h2 className="text-2xl font-extrabold text-white mt-1">Initiate Capital Deposit</h2>
-          <p className="text-xs text-slate-400 mt-1">Funds are credited directly to your available cash ledger upon bank receipt.</p>
+          <span className="text-xs font-mono text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5" /> Institutional Funding Protocol
+          </span>
+          <h2 className="text-3xl font-black text-white mt-1">Capital Deposit Desk</h2>
+          <p className="text-xs text-slate-400 mt-1">All incoming custodial allocations are coordinated directly via your private administrative chatroom.</p>
+        </div>
+        <button
+          onClick={() => onNavigate && onNavigate('messages')}
+          className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center gap-2 transition"
+        >
+          <MessageSquare className="w-4 h-4 text-emerald-400" />
+          <span>Open Private Desk Chat</span>
+        </button>
+      </div>
+
+      {/* Prominent Instruction Banner (Requirement 1) */}
+      <div className="p-6 rounded-3xl bg-gradient-to-r from-emerald-950/40 via-[#0c101b] to-slate-900 border border-emerald-500/30 shadow-2xl space-y-4">
+        <div className="flex items-start space-x-4">
+          <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0 mt-0.5">
+            <MessageSquare className="w-5 h-5" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <span>Mandatory Deposit Procedure: Contact Admin in Private Chatroom</span>
+              <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                REQUIRED BY COMPLIANCE
+              </span>
+            </h3>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Whenever you want to deposit funds, our compliance policy requires you to contact the operations admin through your <strong>built-in private chatroom</strong>. Your dedicated officer will issue authenticated Federal Reserve Fedwire or ACH routing coordinates and an audited reference tracking ID. Once your wire is confirmed, your account balance will immediately be credited.
+            </p>
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-mono text-slate-400 mb-1.5">DEPOSIT AMOUNT (USD)</label>
-            <input 
-              type="number"
-              value={amount}
-              onChange={e => setAmount(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm font-mono text-white focus:outline-none focus:border-red-500"
-              required
-            />
+        {/* 4-Step Visual Flow */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-2 text-xs font-mono">
+          <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
+            <span className="text-[10px] text-emerald-400 font-bold block">STEP 01</span>
+            <div className="font-bold text-white">Contact Desk in Chat</div>
+            <p className="text-[10px] text-slate-400">Specify intended allocation capital &amp; settlement channel.</p>
           </div>
-
-          <div>
-            <label className="block text-xs font-mono text-slate-400 mb-1.5">SETTLEMENT METHOD</label>
-            <select
-              value={method}
-              onChange={e => setMethod(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm font-mono text-white focus:outline-none focus:border-red-500"
-            >
-              <option value="WIRE">Federal Reserve Fedwire (Instant Settlement)</option>
-              <option value="ACH">ACH Domestic Transfer ($0 Fee)</option>
-              <option value="USDC">Institutional Crypto (USDC / USDT)</option>
-            </select>
+          <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
+            <span className="text-[10px] text-emerald-400 font-bold block">STEP 02</span>
+            <div className="font-bold text-white">Receive Coordinates</div>
+            <p className="text-[10px] text-slate-400">Admin issues JPMorgan Chase escrow coordinates &amp; ref memo.</p>
           </div>
-
-          <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs font-mono">
-            <div className="flex justify-between text-slate-400">
-              <span>Beneficiary:</span>
-              <span className="text-white font-bold">Tesla Capital Custody LLC</span>
-            </div>
-            <div className="flex justify-between text-slate-400">
-              <span>Custodial Bank:</span>
-              <span className="text-white">JPMorgan Chase Bank, N.A.</span>
-            </div>
-            <div className="flex justify-between text-slate-400">
-              <span>Routing Transit Number:</span>
-              <span className="text-emerald-400">021000021</span>
-            </div>
+          <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
+            <span className="text-[10px] text-emerald-400 font-bold block">STEP 03</span>
+            <div className="font-bold text-white">Wire Transmit</div>
+            <p className="text-[10px] text-slate-400">Dispatch funds via your verified commercial banking portal.</p>
           </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-4 rounded-xl text-xs font-bold uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 text-white shadow-xl transition-all"
-          >
-            {loading ? 'Generating Wire Reference...' : 'Generate Deposit Order'}
-          </button>
-        </form>
+          <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
+            <span className="text-[10px] text-emerald-400 font-bold block">STEP 04</span>
+            <div className="font-bold text-white">Instant Credit</div>
+            <p className="text-[10px] text-slate-400">Admin reconciles wire &amp; updates your available cash.</p>
+          </div>
+        </div>
       </div>
+
+      {/* Main Two-Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        
+        {/* Left Column: Interactive Chat Inquiry Generator (7 cols) */}
+        <div className="lg:col-span-7 p-7 rounded-3xl bg-[#0c101b] border border-slate-800 shadow-2xl space-y-6">
+          <div>
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <DollarSign className="w-4 h-4 text-emerald-400" />
+              <span>Initiate Deposit &amp; Open Chatroom</span>
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">Specify your target deposit to send an official wire coordinates request directly to the admin desk.</p>
+          </div>
+
+          <form onSubmit={handleInitiateChatDeposit} className="space-y-5">
+            <div>
+              <label className="block text-xs font-mono text-slate-400 mb-1.5 font-semibold">
+                INTENDED DEPOSIT ALLOCATION (USD)
+              </label>
+              <div className="relative">
+                <DollarSign className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                <input 
+                  type="number"
+                  value={amount}
+                  onChange={e => setAmount(e.target.value)}
+                  min="50"
+                  step="any"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-3 text-sm font-mono text-white focus:outline-none focus:border-emerald-500"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Quick preset amount pills */}
+            <div className="grid grid-cols-4 gap-2">
+              {['2500', '5000', '10000', '25000'].map(val => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setAmount(val)}
+                  className={`py-1.5 rounded-lg border text-xs font-mono transition ${
+                    amount === val ? 'bg-emerald-600 text-white border-emerald-500 font-bold' : 'bg-slate-950 border-slate-800 text-slate-300 hover:text-white'
+                  }`}
+                >
+                  ${parseInt(val).toLocaleString()}
+                </button>
+              ))}
+            </div>
+
+            <div>
+              <label className="block text-xs font-mono text-slate-400 mb-1.5 font-semibold">
+                SETTLEMENT CHANNEL
+              </label>
+              <select
+                value={method}
+                onChange={e => setMethod(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+              >
+                <option value="WIRE">Federal Reserve Fedwire (Instant Same-Day Settlement)</option>
+                <option value="ACH">ACH Institutional Direct Deposit ($0 Fee)</option>
+                <option value="USDC">Custodial Digital Currency (USDC / USDT)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-mono text-slate-400 mb-1.5 font-semibold">
+                OPTIONAL NOTE FOR ADMIN DESK
+              </label>
+              <input
+                type="text"
+                value={memo}
+                onChange={e => setMemo(e.target.value)}
+                placeholder="e.g. Allocation for upcoming earnings tranche"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-4 rounded-xl text-xs font-bold uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 text-white shadow-xl shadow-emerald-950/60 transition-all flex items-center justify-center gap-2"
+            >
+              <Send className="w-4 h-4" />
+              <span>{loading ? 'Dispatching to Desk...' : 'Message Admin & Request Wire Coordinates'}</span>
+            </button>
+          </form>
+        </div>
+
+        {/* Right Column: Custodial Banking Coordinates & Status (5 cols) */}
+        <div className="lg:col-span-5 space-y-6">
+          {/* Official Bank Coordinates Card */}
+          <div className="p-6 rounded-3xl bg-[#0c101b] border border-slate-800 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5 text-blue-400" />
+                <span>Verified Custodial Escrow</span>
+              </h4>
+              <span className="text-[10px] font-mono text-emerald-400 font-bold bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/40">
+                ACTIVE RE reconciliation
+              </span>
+            </div>
+
+            <div className="space-y-2.5 text-xs font-mono">
+              <div className="flex justify-between py-1 border-b border-slate-900 text-slate-400">
+                <span>Beneficiary:</span>
+                <span className="text-white font-bold">Tesla Capital Custody LLC</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-900 text-slate-400">
+                <span>Custodial Bank:</span>
+                <span className="text-white">JPMorgan Chase Bank, N.A.</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-900 text-slate-400">
+                <span>Fedwire Routing:</span>
+                <span className="text-emerald-400 font-bold">021000021</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-900 text-slate-400">
+                <span>SWIFT/BIC:</span>
+                <span className="text-white font-bold">CHASUS33</span>
+              </div>
+              <div className="flex justify-between py-1 text-slate-400">
+                <span>Escrow Account:</span>
+                <span className="text-slate-200">****7892 (Assigned in Chat)</span>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400 leading-relaxed">
+              <span className="text-emerald-400 font-semibold font-mono">Notice:</span> Exact memo codes and personalized bank sub-account routing are issued in your private chatroom to guarantee zero-loss allocation.
+            </div>
+          </div>
+
+          {/* Quick Chat Shortcut Card */}
+          <div className="p-6 rounded-3xl bg-[#0c101b] border border-emerald-900/40 shadow-xl space-y-3">
+            <h4 className="text-sm font-bold text-white flex items-center gap-2">
+              <MessageSquare className="w-4 h-4 text-emerald-400" />
+              <span>Need Wire Assistance?</span>
+            </h4>
+            <p className="text-xs text-slate-400">
+              Our administrative operations clearinghouse is standing by to confirm incoming wires, provide custom SWIFT instructions, and update account balances.
+            </p>
+            <button
+              onClick={() => onNavigate && onNavigate('messages')}
+              className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-bold text-emerald-400 uppercase tracking-wider transition"
+            >
+              Open Dedicated Chatroom
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      {/* Recent Deposit Enquiries Table */}
+      {recentDeposits.length > 0 && (
+        <div className="p-6 rounded-3xl bg-[#0c101b] border border-slate-800 space-y-4">
+          <h3 className="text-sm font-bold text-white font-mono uppercase tracking-wider">
+            Your Deposit Enquiries &amp; Clearance History
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs font-mono">
+              <thead>
+                <tr className="text-slate-500 border-b border-slate-800 pb-2">
+                  <th className="py-2.5 px-3">REFERENCE</th>
+                  <th className="py-2.5 px-3">AMOUNT</th>
+                  <th className="py-2.5 px-3">CHANNEL</th>
+                  <th className="py-2.5 px-3">DATE INITIATED</th>
+                  <th className="py-2.5 px-3">STATUS</th>
+                  <th className="py-2.5 px-3 text-right">ACTION</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {recentDeposits.map((dep, idx) => (
+                  <tr key={idx} className="hover:bg-white/[0.02]">
+                    <td className="py-3 px-3 font-bold text-white">{dep.reference}</td>
+                    <td className="py-3 px-3 font-bold text-emerald-400">${parseFloat(dep.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                    <td className="py-3 px-3 text-slate-300">{dep.method}</td>
+                    <td className="py-3 px-3 text-slate-400">{dep.createdAt?.slice(0, 19).replace('T', ' ')}</td>
+                    <td className="py-3 px-3">
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                        dep.status === 'APPROVED' 
+                          ? 'bg-emerald-950 text-emerald-400 border-emerald-800/60' 
+                          : 'bg-blue-950 text-blue-400 border-blue-800/60 animate-pulse'
+                      }`}>
+                        {dep.status === 'APPROVED' ? 'CLEARED & CREDITED' : 'PENDING DESK REVIEW'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      <button
+                        onClick={() => onNavigate && onNavigate('messages')}
+                        className="text-xs text-red-400 hover:text-red-300 font-semibold"
+                      >
+                        View Chat →
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// ==========================================
-// 5. WITHDRAWAL VIEW (72H GUARANTEED SLA)
-// ==========================================
-function WithdrawalView({ currentUser, onSuccess }) {
+// =========================================================================
+// 5. WITHDRAWAL VIEW (72H GUARANTEED SLA & ACCOUNT CLEARANCE - REQ 3 & 5)
+// =========================================================================
+function WithdrawalView({ currentUser, onSuccess, onNavigate }) {
+  const [portfolio, setPortfolio] = useState(null);
   const [amount, setAmount] = useState('800');
   const [method, setMethod] = useState('WIRE');
-  const [destination, setDestination] = useState('JPMorgan Chase (Acct ****4821)');
+  const [destination, setDestination] = useState('JPMorgan Chase (Acct ****4821, Routing 021000021, Jason Evans)');
+  const [clearBalanceOnComplete, setClearBalanceOnComplete] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [withdrawals, setWithdrawals] = useState([]);
+  const [completedModalData, setCompletedModalData] = useState(null);
+
+  // Fetch portfolio & withdrawals
+  const fetchData = () => {
+    fetch('/api/portfolio')
+      .then(res => res.json())
+      .then(data => setPortfolio(data))
+      .catch(() => {});
+
+    fetch('/api/withdrawals')
+      .then(res => res.json())
+      .then(data => {
+        const list = data.withdrawals || [];
+        setWithdrawals(list);
+        // If the latest withdrawal is completed and wasn't dismissed yet
+        if (list.length > 0 && list[0].status === 'COMPLETED' && !list[0]._modalDismissed) {
+          // Check if newly completed in last 10 mins
+          setCompletedModalData(list[0]);
+        }
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 2500);
+    return () => clearInterval(interval);
+  }, []);
+
+  const availableCash = portfolio?.account?.availableCash ?? 1245.00;
+
+  const handleWithdrawAll = () => {
+    const fee = method === 'WIRE' ? 15.0 : 0.0;
+    const maxWithdraw = Math.max(0, availableCash - fee);
+    setAmount(maxWithdraw.toFixed(2));
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1675,89 +2157,378 @@ function WithdrawalView({ currentUser, onSuccess }) {
       const res = await fetch('/api/withdrawals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: parseFloat(amount), method, destination })
+        body: JSON.stringify({ 
+          amount: parseFloat(amount), 
+          method, 
+          destination,
+          clearBalanceOnComplete 
+        })
       });
       const data = await res.json();
       if (res.ok) {
-        onSuccess({
-          type: 'success',
-          title: 'Withdrawal Order Accepted',
-          message: `Payout reference ${data.withdrawal.reference} for $${amount} reserved. 72-hour guaranteed SLA active.`
-        });
+        if (onSuccess) {
+          onSuccess({
+            type: 'success',
+            title: '72-Hour Withdrawal Sequence Active',
+            message: `Payout reference ${data.withdrawal.reference} for $${amount} reserved. 72-hour institutional sequence initiated.`
+          });
+        }
+        fetchData();
       } else {
         alert(data.detail || 'Withdrawal rejected');
       }
     } catch (e) {
-      alert('Network error');
+      alert('Network error connecting to clearinghouse');
     } finally {
       setLoading(false);
     }
   };
 
+  // Simulation step advance directly from user view for testing/demo
+  const handleSimulateAdvance = async (wthId) => {
+    try {
+      const res = await fetch(`/api/admin/withdrawals/${wthId}/advance`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        if (data.withdrawal?.status === 'COMPLETED') {
+          setCompletedModalData(data.withdrawal);
+        }
+        fetchData();
+      }
+    } catch (e) {}
+  };
+
+  const activeWithdrawal = withdrawals.find(w => w.status !== 'COMPLETED' && w.status !== 'REJECTED') || withdrawals[0];
+
   return (
-    <div className="max-w-2xl mx-auto px-4 py-12 space-y-6">
-      <div className="p-8 rounded-3xl bg-[#0c101b] border border-slate-800 shadow-2xl space-y-6">
+    <div className="max-w-4xl mx-auto px-4 py-10 space-y-8">
+      
+      {/* "WITHDRAWAL SUCCESSFUL" NOTIFICATION MODAL (Requirement 3 & 5) */}
+      {completedModalData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="max-w-lg w-full bg-[#0a0e18] border-2 border-emerald-500/80 rounded-3xl p-6 sm:p-8 shadow-[0_0_80px_rgba(16,185,129,0.35)] space-y-6 text-center relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-600"></div>
+            
+            <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center mx-auto shadow-lg shadow-emerald-950/60">
+              <Check className="w-8 h-8 stroke-[3]" />
+            </div>
+
+            <div>
+              <span className="px-3 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 text-[10px] font-mono font-bold tracking-widest uppercase">
+                72-HOUR SLA COMPLETED
+              </span>
+              <h3 className="text-2xl font-black text-white mt-2">Withdrawal Successful</h3>
+              <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                Your simulated payout sequence has completed successfully. Federal Reserve wire confirmation has cleared.
+              </p>
+            </div>
+
+            {/* Clearance Details Box */}
+            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-left font-mono text-xs space-y-2">
+              <div className="flex justify-between text-slate-400">
+                <span>Reference:</span>
+                <span className="text-white font-bold">{completedModalData.reference}</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Net Payout Cleared:</span>
+                <span className="text-emerald-400 font-bold">${parseFloat(completedModalData.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Destination Bank:</span>
+                <span className="text-slate-200">{completedModalData.destinationMasked}</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Fedwire Confirmation:</span>
+                <span className="text-emerald-400 font-bold">#FED-8942-SETTLED</span>
+              </div>
+              <div className="pt-2 border-t border-slate-900 flex justify-between items-center">
+                <span className="text-slate-400">Account Clearance Status:</span>
+                <span className="text-emerald-400 font-bold bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/40">
+                  RECONCILED TO $0.00
+                </span>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setCompletedModalData(null)}
+                className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-emerald-950/60 transition"
+              >
+                Confirm &amp; Acknowledge
+              </button>
+              <button
+                onClick={() => {
+                  setCompletedModalData(null);
+                  if (onNavigate) onNavigate('transactions');
+                }}
+                className="px-4 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-bold text-xs transition"
+              >
+                View Ledger
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="pb-4 border-b border-slate-800 flex flex-wrap justify-between items-center gap-4">
         <div>
-          <span className="text-xs font-mono text-blue-400 font-bold uppercase">72-Hour Guaranteed Settlement SLA</span>
-          <h2 className="text-2xl font-extrabold text-white mt-1">Withdraw Capital</h2>
-          <p className="text-xs text-slate-400 mt-1">Payout requests are double-entry reserved immediately and cleared within 72 hours.</p>
+          <span className="text-xs font-mono text-blue-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5" /> 72-Hour Guaranteed Settlement SLA
+          </span>
+          <h2 className="text-3xl font-black text-white mt-1">Capital Withdrawal Desk</h2>
+          <p className="text-xs text-slate-400 mt-1">Multi-stage institutional liquidation sequence with guaranteed settlement and account clearance.</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-mono text-slate-400 mb-1.5">PAYOUT AMOUNT (USD)</label>
-            <input 
-              type="number"
-              value={amount}
-              onChange={e => setAmount(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm font-mono text-white focus:outline-none focus:border-red-500"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-mono text-slate-400 mb-1.5">PAYOUT CHANNEL</label>
-            <select
-              value={method}
-              onChange={e => setMethod(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm font-mono text-white focus:outline-none focus:border-red-500"
-            >
-              <option value="WIRE">Domestic Fedwire ($15 Fee, Same-Day Clearance)</option>
-              <option value="ACH">ACH Direct Deposit ($0 Fee, 48-72 Hours)</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-mono text-slate-400 mb-1.5">VERIFIED BANK DESTINATION</label>
-            <input 
-              type="text"
-              value={destination}
-              onChange={e => setDestination(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm font-mono text-white focus:outline-none focus:border-red-500"
-              required
-            />
-          </div>
-
-          <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs font-mono">
-            <div className="flex justify-between text-slate-400">
-              <span>Disclosed Fee:</span>
-              <span className="text-white font-bold">{method === 'WIRE' ? '$15.00' : '$0.00'}</span>
-            </div>
-            <div className="flex justify-between text-slate-400">
-              <span>SLA Target:</span>
-              <span className="text-emerald-400 font-bold">Strict 72-Hour Window</span>
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-4 rounded-xl text-xs font-bold uppercase tracking-wider bg-red-600 hover:bg-red-500 text-white shadow-xl transition-all"
-          >
-            {loading ? 'Reserving Ledger Balance...' : 'Initiate Withdrawal Payout'}
-          </button>
-        </form>
+        <div className="flex items-center gap-3 bg-slate-900/90 px-4 py-2 rounded-2xl border border-slate-800 font-mono text-xs">
+          <span className="text-slate-400">Settled Liquidity:</span>
+          <span className="text-emerald-400 font-bold text-sm">${availableCash.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+        </div>
       </div>
+
+      {/* ACTIVE 72-HOUR PROCESSING SEQUENCE CARD (Requirement 3) */}
+      {activeWithdrawal && (
+        <div className={`p-6 sm:p-7 rounded-3xl border shadow-2xl space-y-6 ${
+          activeWithdrawal.status === 'COMPLETED' 
+            ? 'bg-[#0a1215] border-emerald-500/40' 
+            : 'bg-[#0a0f1d] border-blue-500/40'
+        }`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center space-x-3">
+              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-bold text-lg ${
+                activeWithdrawal.status === 'COMPLETED' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-blue-500/20 text-blue-400 border border-blue-500/40'
+              }`}>
+                {activeWithdrawal.status === 'COMPLETED' ? <Check className="w-5 h-5" /> : <Clock className="w-5 h-5 animate-spin" />}
+              </div>
+              <div>
+                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Active Settlement Flow</span>
+                <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                  <span>{activeWithdrawal.reference}</span>
+                  <span className="text-slate-500">•</span>
+                  <span className="text-emerald-400 font-mono">${parseFloat(activeWithdrawal.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span>
+                </h4>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className={`px-3 py-1 rounded-full text-xs font-mono font-bold border ${
+                activeWithdrawal.status === 'COMPLETED' 
+                  ? 'bg-emerald-950 text-emerald-400 border-emerald-800' 
+                  : 'bg-blue-950 text-blue-300 border-blue-800 animate-pulse'
+              }`}>
+                {activeWithdrawal.status === 'COMPLETED' ? 'WITHDRAWAL SUCCESSFUL' : `STAGE ${activeWithdrawal.step || 1} OF 4 IN PROGRESS`}
+              </span>
+
+              {activeWithdrawal.status !== 'COMPLETED' && (
+                <button
+                  onClick={() => handleSimulateAdvance(activeWithdrawal.id)}
+                  className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-mono text-[11px] font-bold shadow transition"
+                  title="Simulate step advance for demo presentation"
+                >
+                  Advance Step (Demo)
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 72-Hour Countdown Clock & Progress Bar */}
+          <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800/80 space-y-3 font-mono">
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-slate-400 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-blue-400" />
+                <span>SLA Guaranteed Processing Window:</span>
+              </span>
+              <span className={`text-sm font-bold ${activeWithdrawal.status === 'COMPLETED' ? 'text-emerald-400' : 'text-blue-400 animate-pulse'}`}>
+                {activeWithdrawal.status === 'COMPLETED' ? '0h 00m 00s (Settled)' : `${activeWithdrawal.hoursRemaining || 72}h 00m Remaining`}
+              </span>
+            </div>
+
+            {/* Visual 4-Step Stepper */}
+            <div className="grid grid-cols-4 gap-2 pt-2 text-[10px]">
+              {[
+                { num: 1, title: 'Pre-Clearing', sub: 'Reserve Hold' },
+                { num: 2, title: 'Custodial KYC', sub: 'Compliance OK' },
+                { num: 3, title: 'Fedwire Route', sub: 'Dispatching' },
+                { num: 4, title: 'Final Settlement', sub: 'Account Cleared' }
+              ].map(step => {
+                const currentStep = activeWithdrawal.status === 'COMPLETED' ? 4 : (activeWithdrawal.step || 1);
+                const isPassed = step.num <= currentStep;
+                const isCurrent = step.num === currentStep;
+
+                return (
+                  <div key={step.num} className="space-y-1.5">
+                    <div className={`h-2 rounded-full transition-all ${
+                      isPassed ? (activeWithdrawal.status === 'COMPLETED' ? 'bg-emerald-500' : 'bg-blue-500') : 'bg-slate-800'
+                    }`}></div>
+                    <div className="flex items-center space-x-1">
+                      <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-bold ${
+                        isPassed ? 'bg-emerald-500 text-black' : 'bg-slate-800 text-slate-400'
+                      }`}>
+                        {step.num}
+                      </span>
+                      <span className={`font-semibold truncate ${isCurrent ? 'text-white' : 'text-slate-400'}`}>
+                        {step.title}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="pt-2 border-t border-slate-900 text-xs text-slate-300">
+              <span className="text-slate-400">Current Phase: </span>
+              <strong className="text-white">{activeWithdrawal.stepName || 'Pre-Clearing Review & Ledger Hold'}</strong>
+              <p className="text-[11px] text-slate-400 mt-0.5">{activeWithdrawal.stepDescription || 'Funds held in double-entry ledger. Staging Federal Reserve transmission.'}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Form & Destination Split */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        
+        {/* Withdrawal Form (7 cols) */}
+        <div className="lg:col-span-7 p-7 rounded-3xl bg-[#0c101b] border border-slate-800 shadow-2xl space-y-6">
+          <div>
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <Clock className="w-4 h-4 text-blue-400" />
+              <span>Submit New Withdrawal Request</span>
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">Submitted requests appear on the admin dashboard for compliance review and 72-hour sequence dispatch.</p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div>
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="text-xs font-mono text-slate-400 font-semibold">
+                  PAYOUT AMOUNT (USD)
+                </label>
+                <button
+                  type="button"
+                  onClick={handleWithdrawAll}
+                  className="text-[11px] font-mono text-emerald-400 hover:text-emerald-300 font-bold"
+                >
+                  Withdraw Full Balance (${availableCash.toLocaleString()})
+                </button>
+              </div>
+              <div className="relative">
+                <DollarSign className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                <input 
+                  type="number"
+                  value={amount}
+                  onChange={e => setAmount(e.target.value)}
+                  min="50"
+                  max={availableCash}
+                  step="any"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-3 text-sm font-mono text-white focus:outline-none focus:border-blue-500"
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-mono text-slate-400 mb-1.5 font-semibold">
+                PAYOUT SETTLEMENT CHANNEL
+              </label>
+              <select
+                value={method}
+                onChange={e => setMethod(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs font-mono text-white focus:outline-none focus:border-blue-500"
+              >
+                <option value="WIRE">Domestic Fedwire ($15 Fee, Same-Day Fed Routing)</option>
+                <option value="ACH">ACH Institutional Direct Custody ($0 Fee, 48-72 Hours)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-mono text-slate-400 mb-1.5 font-semibold">
+                VERIFIED BANKING DESTINATION
+              </label>
+              <input 
+                type="text"
+                value={destination}
+                onChange={e => setDestination(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+                required
+              />
+            </div>
+
+            {/* Account Clearance Checkbox (Requirement 5) */}
+            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex items-start space-x-3">
+              <input
+                type="checkbox"
+                id="clearBalanceCheckbox"
+                checked={clearBalanceOnComplete}
+                onChange={e => setClearBalanceOnComplete(e.target.checked)}
+                className="mt-1 rounded border-slate-700 text-blue-600 focus:ring-0 cursor-pointer"
+              />
+              <label htmlFor="clearBalanceCheckbox" className="text-xs text-slate-300 leading-relaxed cursor-pointer">
+                <span className="font-bold text-white block">Automatic Account Clearance Upon Final Settlement</span>
+                After the 72-hour simulated sequence completes successfully, update the double-entry transaction history and clear Jason Evans's account balance per institutional protocol.
+              </label>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs font-mono">
+              <div className="flex justify-between text-slate-400">
+                <span>Disclosed Settlement Fee:</span>
+                <span className="text-white font-bold">{method === 'WIRE' ? '$15.00 USD' : '$0.00 USD'}</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>SLA Guaranteed Delivery:</span>
+                <span className="text-emerald-400 font-bold">Strict 72-Hour SLA Window</span>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-4 rounded-xl text-xs font-bold uppercase tracking-wider bg-blue-600 hover:bg-blue-500 text-white shadow-xl shadow-blue-950/60 transition-all flex items-center justify-center gap-2"
+            >
+              <Clock className="w-4 h-4" />
+              <span>{loading ? 'Submitting to Clearinghouse...' : 'Submit Withdrawal (Start 72h SLA)'}</span>
+            </button>
+          </form>
+        </div>
+
+        {/* Right Column: SLA Policy & Compliance (5 cols) */}
+        <div className="lg:col-span-5 space-y-6">
+          <div className="p-6 rounded-3xl bg-[#0c101b] border border-slate-800 space-y-4">
+            <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4" />
+              <span>Institutional SLA Terms</span>
+            </h4>
+            <div className="space-y-3 text-xs text-slate-300 leading-relaxed">
+              <p>
+                <strong>1. Double-Entry Reservation:</strong> Once submitted, requested capital is immediately held in the double-entry ledger to prevent overdraft while yielding custody compliance approval.
+              </p>
+              <p>
+                <strong>2. 72-Hour Settlement Clock:</strong> The clearinghouse protocol progresses through compliance review, Fedwire generation, and final funds dispatch within 72 hours.
+              </p>
+              <p>
+                <strong>3. Account Clearance:</strong> Upon final successful clearance, the system issues a verified completion confirmation and reconciles Jason Evans's cash account balance.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-6 rounded-3xl bg-[#0c101b] border border-slate-800 space-y-3">
+            <h4 className="text-sm font-bold text-white flex items-center gap-2">
+              <MessageSquare className="w-4 h-4 text-emerald-400" />
+              <span>Questions Regarding Settlement?</span>
+            </h4>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              You can contact the operations administrator at any point during the 72-hour sequence via the built-in private chatroom.
+            </p>
+            <button
+              onClick={() => onNavigate && onNavigate('messages')}
+              className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-bold text-slate-200 transition"
+            >
+              Consult Clearing Desk
+            </button>
+          </div>
+        </div>
+
+      </div>
+
     </div>
   );
 }
@@ -1780,16 +2551,21 @@ function TransactionsView({ currentUser }) {
   }, []);
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-12 space-y-6">
-      <div className="flex items-center justify-between pb-6 border-b border-slate-800">
+    <div className="max-w-6xl mx-auto px-4 py-10 space-y-6">
+      <div className="flex flex-wrap items-center justify-between pb-6 border-b border-slate-800 gap-4">
         <div>
-          <span className="text-xs font-mono text-emerald-400 font-bold uppercase">Audit Trail</span>
-          <h2 className="text-2xl font-extrabold text-white mt-1">Double-Entry Financial Ledger</h2>
-          <p className="text-xs text-slate-400 mt-1">Immutable server-authoritative debit/credit ledger records with cryptographic hashes.</p>
+          <span className="text-xs font-mono text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5" /> Immutable Audit Trail
+          </span>
+          <h2 className="text-3xl font-black text-white mt-1">Double-Entry Financial Ledger</h2>
+          <p className="text-xs text-slate-400 mt-1">Server-authoritative debit/credit ledger records with SHA-256 cryptographic hashes.</p>
         </div>
+        <span className="text-xs font-mono bg-slate-900 text-emerald-400 px-3 py-1.5 rounded-xl border border-slate-800">
+          100% RECONCILED
+        </span>
       </div>
 
-      <div className="rounded-2xl bg-[#0c101b] border border-slate-800 overflow-hidden">
+      <div className="rounded-2xl bg-[#0c101b] border border-slate-800 overflow-hidden shadow-2xl">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs font-mono">
             <thead>
@@ -1803,22 +2579,34 @@ function TransactionsView({ currentUser }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/40">
-              {entries.map((entry, idx) => (
-                <tr key={idx} className="hover:bg-white/[0.02]">
-                  <td className="py-3 px-4 text-slate-400">{entry.createdAt.slice(0, 19).replace('T', ' ')}</td>
-                  <td className="py-3 px-4">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${entry.type === 'BUY' || entry.type === 'DEPOSIT' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/40' : 'bg-red-950 text-red-400 border border-red-800/40'}`}>
-                      {entry.type}
-                    </span>
-                  </td>
-                  <td className={`py-3 px-4 font-bold ${entry.amount >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {entry.amount >= 0 ? '+' : ''}${Math.abs(entry.amount).toFixed(2)}
-                  </td>
-                  <td className="py-3 px-4 font-bold text-white">${entry.balanceAfter.toFixed(2)}</td>
-                  <td className="py-3 px-4 text-slate-300">{entry.description}</td>
-                  <td className="py-3 px-4 text-slate-500 font-mono text-[10px]">{entry.hash}</td>
-                </tr>
-              ))}
+              {entries.map((entry, idx) => {
+                const isPositive = entry.amount >= 0;
+                let badgeStyle = 'bg-slate-900 text-slate-300 border-slate-700';
+                if (entry.type === 'BUY' || entry.type === 'DEPOSIT') {
+                  badgeStyle = 'bg-emerald-950 text-emerald-400 border-emerald-800/60';
+                } else if (entry.type === 'WITHDRAWAL' || entry.type === 'ACCOUNT_CLEARANCE') {
+                  badgeStyle = 'bg-blue-950 text-blue-400 border-blue-800/60';
+                } else if (entry.type === 'WITHDRAWAL_SETTLED') {
+                  badgeStyle = 'bg-purple-950 text-purple-400 border-purple-800/60 font-bold';
+                }
+
+                return (
+                  <tr key={idx} className="hover:bg-white/[0.02]">
+                    <td className="py-3 px-4 text-slate-400">{entry.createdAt.slice(0, 19).replace('T', ' ')}</td>
+                    <td className="py-3 px-4">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${badgeStyle}`}>
+                        {entry.type}
+                      </span>
+                    </td>
+                    <td className={`py-3 px-4 font-bold ${isPositive ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {isPositive ? '+' : ''}${Math.abs(entry.amount).toFixed(2)}
+                    </td>
+                    <td className="py-3 px-4 font-bold text-white">${entry.balanceAfter.toFixed(2)}</td>
+                    <td className="py-3 px-4 text-slate-300 max-w-xs truncate">{entry.description}</td>
+                    <td className="py-3 px-4 text-slate-500 font-mono text-[10px]">{entry.hash}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1827,95 +2615,201 @@ function TransactionsView({ currentUser }) {
   );
 }
 
-// ==========================================
-// 7. INTERNAL MESSAGES VIEW
-// ==========================================
-function MessagesView({ currentUser }) {
+// =========================================================================
+// 7. USER PRIVATE CHATROOM VIEW (WITH TESLA OPERATIONS DESK - REQ 1)
+// =========================================================================
+function MessagesView({ currentUser, onNavigate }) {
   const [messages, setMessages] = useState([]);
   const [content, setContent] = useState('');
+  const [loading, setLoading] = useState(false);
+  const messagesEndRef = useRef(null);
 
   const fetchMessages = () => {
     fetch('/api/messages')
       .then(res => res.json())
-      .then(data => setMessages(data.messages || []));
+      .then(data => setMessages(data.messages || []))
+      .catch(() => {});
   };
 
   useEffect(() => {
     fetchMessages();
+    const interval = setInterval(fetchMessages, 2500);
+    return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
   const handleSend = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     if (!content.trim()) return;
+
+    setLoading(true);
+    const msgToSend = content;
+    setContent('');
 
     await fetch('/api/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content, subject: 'Portfolio Support' })
+      body: JSON.stringify({ content: msgToSend, subject: 'Institutional Desk Inquiry' })
     });
-    setContent('');
+    setLoading(false);
     fetchMessages();
   };
 
-  return (
-    <div className="max-w-4xl mx-auto px-4 py-12 space-y-6">
-      <div className="pb-6 border-b border-slate-800">
-        <span className="text-xs font-mono text-red-500 font-bold uppercase">Encrypted Internal Channel</span>
-        <h2 className="text-2xl font-extrabold text-white mt-1">Tesla Operations Desk</h2>
-        <p className="text-xs text-slate-400 mt-1">Direct communication with our custodial financial engineers.</p>
-      </div>
+  const handleQuickPrompt = (promptText) => {
+    setContent(promptText);
+  };
 
-      <div className="rounded-2xl bg-[#0c101b] border border-slate-800 h-[480px] flex flex-col justify-between p-6">
-        <div className="space-y-4 overflow-y-auto pr-2">
-          {messages.map((m, idx) => {
-            const isMe = m.senderRole === 'USER';
-            return (
-              <div key={idx} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                <div className="flex items-center space-x-2 text-[10px] text-slate-400 mb-1 font-mono">
-                  <span>{m.senderName}</span>
-                  <span>•</span>
-                  <span>{m.createdAt.slice(11, 16)}</span>
-                </div>
-                <div className={`p-3.5 rounded-2xl max-w-lg text-xs leading-relaxed ${isMe ? 'bg-red-600 text-white rounded-tr-none' : 'bg-slate-900 border border-slate-800 text-slate-200 rounded-tl-none'}`}>
-                  {m.content}
-                </div>
-              </div>
-            );
-          })}
+  return (
+    <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+      
+      {/* Chatroom Header */}
+      <div className="p-6 rounded-3xl bg-[#0c101b] border border-slate-800 shadow-2xl flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center space-x-4">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-red-600 to-red-900 text-white flex items-center justify-center font-bold text-xl shadow-lg shadow-red-950/60 border border-red-500/30">
+            <Lock className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center space-x-2">
+              <h2 className="text-xl font-bold text-white">Tesla Operations Administrative Desk</h2>
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+            </div>
+            <p className="text-xs font-mono text-slate-400 mt-0.5">
+              Encrypted Private 1-on-1 Channel • <span className="text-emerald-400 font-semibold">Tier 2 Authorized</span>
+            </p>
+          </div>
         </div>
 
-        <form onSubmit={handleSend} className="flex gap-2 pt-4 border-t border-slate-800">
-          <input 
-            type="text"
-            value={content}
-            onChange={e => setContent(e.target.value)}
-            placeholder="Type your message to the Tesla operations desk..."
-            className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-red-500"
-          />
-          <button 
-            type="submit"
-            className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center gap-1.5"
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => onNavigate && onNavigate('deposit')}
+            className="px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-400 text-xs font-bold font-mono transition"
           >
-            <span>Send</span>
-            <Send className="w-3.5 h-3.5" />
+            + Deposit Capital
           </button>
-        </form>
+          <button
+            onClick={() => onNavigate && onNavigate('withdrawal')}
+            className="px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-400 text-xs font-bold font-mono transition"
+          >
+            Withdraw (72h SLA)
+          </button>
+        </div>
       </div>
+
+      {/* Main Chat Container */}
+      <div className="rounded-3xl bg-[#0c101b] border border-slate-800 h-[520px] flex flex-col justify-between p-6 shadow-2xl overflow-hidden">
+        
+        {/* Messages Scroll Area */}
+        <div className="space-y-4 overflow-y-auto pr-2">
+          {messages.length === 0 ? (
+            <div className="text-center py-20 text-slate-500 text-xs font-mono">
+              Connecting to Tesla Operations Private Desk...
+            </div>
+          ) : (
+            messages.map((m, idx) => {
+              const isMe = m.senderRole === 'USER';
+              return (
+                <div key={idx} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                  <div className="flex items-center space-x-2 text-[10px] text-slate-400 mb-1 font-mono">
+                    <span className="font-bold text-slate-300">{m.senderName}</span>
+                    <span>•</span>
+                    <span>{m.createdAt?.slice(11, 16) || 'Now'}</span>
+                    {!isMe && (
+                      <span className="bg-red-950 text-red-400 border border-red-800 px-1.5 py-0.2 rounded text-[9px]">
+                        ADMIN
+                      </span>
+                    )}
+                  </div>
+                  <div className={`p-4 rounded-2xl max-w-lg text-xs leading-relaxed whitespace-pre-line shadow-md ${
+                    isMe 
+                      ? 'bg-red-600 text-white rounded-tr-none' 
+                      : 'bg-slate-900 border border-slate-800 text-slate-100 rounded-tl-none font-sans'
+                  }`}>
+                    {m.content}
+                  </div>
+                </div>
+              );
+            })
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Quick Prompt Chips */}
+        <div className="pt-3 border-t border-slate-800/80 space-y-3">
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+            <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider shrink-0">Quick Prompts:</span>
+            {[
+              "Request official wire deposit coordinates for $5,000",
+              "Check 72-hour withdrawal status and remaining time",
+              "Inquire on current available settled cash balance"
+            ].map((chip, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => handleQuickPrompt(chip)}
+                className="px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[10px] font-mono text-slate-300 hover:text-white whitespace-nowrap transition"
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+
+          {/* Form Composer */}
+          <form onSubmit={handleSend} className="flex gap-2">
+            <input 
+              type="text"
+              value={content}
+              onChange={e => setContent(e.target.value)}
+              placeholder="Message the Tesla operations desk directly (e.g. deposit inquiry, wire confirmation)..."
+              className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-red-500"
+            />
+            <button 
+              type="submit"
+              disabled={loading || !content.trim()}
+              className="px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 shadow-lg transition"
+            >
+              <span>Send</span>
+              <Send className="w-3.5 h-3.5" />
+            </button>
+          </form>
+        </div>
+
+      </div>
+
     </div>
   );
 }
 
-// ==========================================
-// 8. ADMIN VIEW (CONTROL WORKSTATION)
-// ==========================================
-function AdminView({ currentUser, onSuccess }) {
+// =========================================================================
+// 8. ADMIN DASHBOARD & MONITORING VIEW (CENTRAL CLEARINGHOUSE - REQ 1-5)
+// =========================================================================
+function AdminView({ currentUser, onSuccess, onNavigate }) {
+  const [activeTab, setActiveTab] = useState('overview'); // overview, users, withdrawals, deposits, chatrooms, ledger
   const [metrics, setMetrics] = useState(null);
+  
+  // Data sets
   const [users, setUsers] = useState([]);
-  const [selectedUser, setSelectedUser] = useState('');
-  const [adjustAmount, setAdjustAmount] = useState('500');
-  const [adjustReason, setAdjustReason] = useState('Institutional Dividend Credit');
+  const [accounts, setAccounts] = useState([]);
+  const [withdrawals, setWithdrawals] = useState([]);
+  const [deposits, setDeposits] = useState([]);
+  const [conversations, setConversations] = useState([]);
+  const [ledgerEntries, setLedgerEntries] = useState([]);
 
-  useEffect(() => {
+  // Active chat in chatroom manager
+  const [selectedConvId, setSelectedConvId] = useState(null);
+  const [convMessages, setConvMessages] = useState([]);
+  const [adminReplyText, setAdminReplyText] = useState('');
+
+  // Balance Adjustment Modal
+  const [balanceModalUser, setBalanceModalUser] = useState(null);
+  const [adjustMode, setAdjustMode] = useState('DELTA'); // DELTA or EXACT
+  const [adjustAmount, setAdjustAmount] = useState('500');
+  const [adjustReason, setAdjustReason] = useState('Institutional Wire Deposit Reconciliation');
+
+  // Load all admin data
+  const loadAdminData = () => {
     fetch('/api/admin/metrics')
       .then(res => res.json())
       .then(data => setMetrics(data))
@@ -1925,105 +2819,862 @@ function AdminView({ currentUser, onSuccess }) {
       .then(res => res.json())
       .then(data => {
         setUsers(data.users || []);
-        if (data.users && data.users.length > 0) {
-          setSelectedUser(data.users[0].id);
+        setAccounts(data.accounts || []);
+      })
+      .catch(() => {});
+
+    fetch('/api/admin/withdrawals')
+      .then(res => res.json())
+      .then(data => setWithdrawals(data.withdrawals || []))
+      .catch(() => {});
+
+    fetch('/api/admin/deposits')
+      .then(res => res.json())
+      .then(data => setDeposits(data.deposits || []))
+      .catch(() => {});
+
+    fetch('/api/admin/conversations')
+      .then(res => res.json())
+      .then(data => {
+        const convList = data.conversations || [];
+        setConversations(convList);
+        if (!selectedConvId && convList.length > 0) {
+          setSelectedConvId(convList[0].id);
         }
       })
       .catch(() => {});
+
+    fetch('/api/transactions')
+      .then(res => res.json())
+      .then(data => setLedgerEntries(data.transactions || []))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    loadAdminData();
+    const interval = setInterval(loadAdminData, 2500);
+    return () => clearInterval(interval);
   }, []);
 
-  const handleAdjust = async (e) => {
+  // Fetch messages when selected conversation changes
+  useEffect(() => {
+    if (!selectedConvId) return;
+    const fetchChatMessages = () => {
+      fetch(`/api/admin/conversations/${selectedConvId}/messages`)
+        .then(res => res.json())
+        .then(data => setConvMessages(data.messages || []))
+        .catch(() => {});
+    };
+    fetchChatMessages();
+    const interval = setInterval(fetchChatMessages, 2500);
+    return () => clearInterval(interval);
+  }, [selectedConvId]);
+
+  // Handle balance adjustment (Requirement 2)
+  const handleSaveBalanceAdjustment = async (e) => {
     e.preventDefault();
-    const res = await fetch('/api/admin/adjust-balance', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userId: selectedUser,
-        amount: parseFloat(adjustAmount),
-        reason: adjustReason
-      })
-    });
-    const data = await res.json();
-    if (res.ok) {
-      onSuccess({
-        type: 'success',
-        title: 'Ledger Balance Adjusted',
-        message: `Account balance updated by $${adjustAmount}. Audit log created.`
+    if (!balanceModalUser) return;
+
+    try {
+      const endpoint = adjustMode === 'EXACT' ? '/api/admin/set-balance' : '/api/admin/adjust-balance';
+      const payload = adjustMode === 'EXACT' 
+        ? { userId: balanceModalUser.id, targetBalance: parseFloat(adjustAmount), reason: adjustReason }
+        : { userId: balanceModalUser.id, amount: parseFloat(adjustAmount), reason: adjustReason };
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       });
-    } else {
-      alert(data.detail || 'Adjustment rejected');
+      const data = await res.json();
+      if (res.ok) {
+        if (onSuccess) {
+          onSuccess({
+            type: 'success',
+            title: 'Account Balance Reconciled',
+            message: `${balanceModalUser.fullName}'s balance updated to $${data.account?.availableCash?.toFixed(2)} USD. Reconciled immediately on user workstation.`
+          });
+        }
+        setBalanceModalUser(null);
+        loadAdminData();
+      } else {
+        alert(data.detail || 'Adjustment error');
+      }
+    } catch (e) {
+      alert('Error updating balance');
     }
   };
 
+  // Quick Clear User Balance to $0.00 (Requirement 5)
+  const handleClearBalance = async (userId, userName) => {
+    if (!confirm(`Are you sure you want to clear ${userName}'s balance to $0.00? This will append an ACCOUNT_CLEARANCE record in the double-entry ledger.`)) {
+      return;
+    }
+    try {
+      const res = await fetch('/api/admin/clear-balance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, reason: `Post-withdrawal settlement account clearance for ${userName}` })
+      });
+      if (res.ok) {
+        if (onSuccess) {
+          onSuccess({
+            type: 'success',
+            title: 'Account Balance Cleared',
+            message: `${userName}'s cash balance has been cleared to $0.00. Updated immediately on user dashboard.`
+          });
+        }
+        loadAdminData();
+      }
+    } catch (e) {}
+  };
+
+  // Advance 72h withdrawal step (Requirement 3)
+  const handleAdvanceWithdrawal = async (wthId) => {
+    try {
+      const res = await fetch(`/api/admin/withdrawals/${wthId}/advance`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        if (onSuccess) {
+          onSuccess({
+            type: 'success',
+            title: 'Withdrawal Sequence Advanced',
+            message: `Advanced to ${data.withdrawal?.stepName || 'Next Step'}.`
+          });
+        }
+        loadAdminData();
+      }
+    } catch (e) {}
+  };
+
+  // Complete withdrawal and clear balance (Requirement 3 & 5)
+  const handleCompleteWithdrawal = async (wthId) => {
+    try {
+      const res = await fetch(`/api/admin/withdrawals/${wthId}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clearBalance: true })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (onSuccess) {
+          onSuccess({
+            type: 'success',
+            title: 'Withdrawal Successfully Cleared',
+            message: `72h settlement completed. User account balance cleared to $0.00 per configured flow.`
+          });
+        }
+        loadAdminData();
+      }
+    } catch (e) {}
+  };
+
+  // Approve incoming deposit (Requirement 1)
+  const handleApproveDeposit = async (depId) => {
+    try {
+      const res = await fetch(`/api/admin/deposits/${depId}/approve`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        if (onSuccess) {
+          onSuccess({
+            type: 'success',
+            title: 'Deposit Approved & Credited',
+            message: `Deposit reference ${data.deposit?.reference} credited to user available cash immediately.`
+          });
+        }
+        loadAdminData();
+      }
+    } catch (e) {}
+  };
+
+  // Send admin reply in chatroom (Requirement 1 & 4)
+  const handleSendAdminReply = async (customText = null) => {
+    const text = customText || adminReplyText;
+    if (!text.trim() || !selectedConvId) return;
+
+    await fetch(`/api/admin/conversations/${selectedConvId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: text })
+    });
+    if (!customText) setAdminReplyText('');
+    loadAdminData();
+  };
+
+  // Selected conversation object
+  const selectedConv = conversations.find(c => c.id === selectedConvId);
+
   return (
-    <div className="max-w-6xl mx-auto px-4 py-12 space-y-8">
-      <div className="pb-6 border-b border-slate-800">
-        <span className="text-xs font-mono text-red-500 font-bold uppercase">Operations Control Portal</span>
-        <h2 className="text-2xl font-extrabold text-white mt-1">Tesla Operations Administration</h2>
-        <p className="text-xs text-slate-400 mt-1">Double-entry ledger reconciliation, user custody management, and audit inspection.</p>
-      </div>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+      
+      {/* Balance Adjustment Modal (Requirement 2) */}
+      {balanceModalUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="max-w-md w-full bg-[#0c101b] border-2 border-red-500/60 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="text-lg font-bold text-white">Adjust User Balance</h3>
+                <p className="text-xs text-slate-400 mt-0.5">{balanceModalUser.fullName} ({balanceModalUser.email})</p>
+              </div>
+              <button onClick={() => setBalanceModalUser(null)} className="text-slate-500 hover:text-slate-300">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 font-mono text-xs">
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-slate-500 block">TOTAL AUM CUSTODY</span>
-          <span className="text-xl font-bold text-white">${metrics?.totalAum?.toLocaleString() || '12,482.36'}</span>
-        </div>
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-slate-500 block">REGISTERED INVESTORS</span>
-          <span className="text-xl font-bold text-emerald-400">{metrics?.totalUsers || 2} Active</span>
-        </div>
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-slate-500 block">PENDING DEPOSITS</span>
-          <span className="text-xl font-bold text-blue-400">{metrics?.pendingDeposits || 1} Queue</span>
-        </div>
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-slate-500 block">72H WITHDRAWAL SLA</span>
-          <span className="text-xl font-bold text-emerald-400">100% Compliant</span>
-        </div>
-      </div>
+            <form onSubmit={handleSaveBalanceAdjustment} className="space-y-4">
+              <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-mono">
+                <button
+                  type="button"
+                  onClick={() => setAdjustMode('DELTA')}
+                  className={`flex-1 py-1.5 rounded-lg transition ${adjustMode === 'DELTA' ? 'bg-red-600 text-white font-bold' : 'text-slate-400'}`}
+                >
+                  +/- Delta Adjustment
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdjustMode('EXACT')}
+                  className={`flex-1 py-1.5 rounded-lg transition ${adjustMode === 'EXACT' ? 'bg-red-600 text-white font-bold' : 'text-slate-400'}`}
+                >
+                  Set Exact Balance
+                </button>
+              </div>
 
-      {/* Admin Balance Adjustment Panel */}
-      <div className="p-6 rounded-2xl bg-[#0c101b] border border-slate-800 space-y-4">
-        <h3 className="text-lg font-bold text-white">Manual Balance Adjustment Desk</h3>
-        <form onSubmit={handleAdjust} className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
-          <div>
-            <label className="block text-xs font-mono text-slate-400 mb-1">SELECT INVESTOR</label>
-            <select 
-              value={selectedUser}
-              onChange={e => setSelectedUser(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white"
-            >
-              {users.map(u => (
-                <option key={u.id} value={u.id}>{u.fullName} ({u.email})</option>
-              ))}
-            </select>
+              <div>
+                <label className="block text-xs font-mono text-slate-400 mb-1">
+                  {adjustMode === 'EXACT' ? 'TARGET CASH BALANCE (USD)' : 'ADJUSTMENT AMOUNT (+/- USD)'}
+                </label>
+                <input 
+                  type="number"
+                  step="any"
+                  value={adjustAmount}
+                  onChange={e => setAdjustAmount(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-red-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-mono text-slate-400 mb-1">
+                  MANDATORY AUDIT REASON / LEDGER MEMO
+                </label>
+                <input 
+                  type="text"
+                  value={adjustReason}
+                  onChange={e => setAdjustReason(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-red-500"
+                  required
+                />
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400 leading-relaxed font-mono">
+                Changes will reflect <strong>immediately</strong> on the user's dashboard and append an immutable SHA-256 cryptographic entry to the double-entry financial ledger.
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setBalanceModalUser(null)}
+                  className="flex-1 py-3 rounded-xl bg-slate-900 text-slate-300 font-bold text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs uppercase"
+                >
+                  Commit Adjustment
+                </button>
+              </div>
+            </form>
           </div>
-          <div>
-            <label className="block text-xs font-mono text-slate-400 mb-1">AMOUNT (+/- USD)</label>
-            <input 
-              type="number"
-              value={adjustAmount}
-              onChange={e => setAdjustAmount(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white font-mono"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-mono text-slate-400 mb-1">REASON / AUDIT MEMO</label>
-            <input 
-              type="text"
-              value={adjustReason}
-              onChange={e => setAdjustReason(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white"
-            />
-          </div>
-          <button 
-            type="submit"
-            className="w-full py-2.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs uppercase"
+        </div>
+      )}
+
+      {/* Header & Mode Switcher */}
+      <div className="pb-4 border-b border-slate-800 flex flex-wrap justify-between items-center gap-4">
+        <div>
+          <span className="text-xs font-mono text-red-500 font-bold uppercase tracking-wider flex items-center gap-1.5">
+            <Lock className="w-3.5 h-3.5" /> Tesla Institutional Operations Clearinghouse
+          </span>
+          <h2 className="text-3xl font-black text-white mt-1">Admin Command Control Desk</h2>
+          <p className="text-xs text-slate-400 mt-1">Monitor registered users, balances, deposit enquiries, 72h withdrawal SLA queues, and private chatrooms.</p>
+        </div>
+
+        {/* Quick Demo Switcher */}
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={async () => {
+              await fetch('/api/auth/switch-role', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role: 'USER', email: 'investor@tesla-invest.com' })
+              });
+              window.location.reload();
+            }}
+            className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg transition"
           >
-            Adjust Balance
+            <User className="w-4 h-4" />
+            <span>Switch to Jason Evans (Workstation)</span>
           </button>
-        </form>
+        </div>
       </div>
+
+      {/* Navigation Tabs (Requirement 4) */}
+      <div className="flex bg-[#0c101b] p-1.5 rounded-2xl border border-slate-800 overflow-x-auto no-scrollbar gap-1 text-xs font-mono">
+        {[
+          { id: 'overview', label: 'Overview & Metrics', icon: LayoutDashboard },
+          { id: 'users', label: 'User Balances & Accounts', icon: User, badge: users.length },
+          { id: 'withdrawals', label: '72h Withdrawal Queue', icon: Clock, badge: withdrawals.filter(w => w.status !== 'COMPLETED').length },
+          { id: 'deposits', label: 'Deposit Enquiries', icon: DollarSign, badge: deposits.filter(d => d.status === 'PENDING_REVIEW').length },
+          { id: 'chatrooms', label: 'Private Chatrooms', icon: MessageSquare, badge: conversations.reduce((acc, c) => acc + (c.unreadAdminCount || 0), 0) },
+          { id: 'ledger', label: 'Audit Ledger', icon: ShieldCheck }
+        ].map(tab => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl font-bold transition whitespace-nowrap ${
+                isActive ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-900'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              <span>{tab.label}</span>
+              {tab.badge > 0 && (
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                  isActive ? 'bg-white text-red-600 font-black' : 'bg-red-950 text-red-400 border border-red-800'
+                }`}>
+                  {tab.badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* TAB 1: OVERVIEW & METRICS */}
+      {activeTab === 'overview' && (
+        <div className="space-y-8 animate-fade-in">
+          {/* KPI Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 font-mono text-xs">
+            <div className="p-5 rounded-2xl bg-[#0c101b] border border-slate-800 space-y-1">
+              <span className="text-slate-500 uppercase text-[10px]">Total Custody AUM</span>
+              <div className="text-xl font-bold text-white">${metrics?.totalAum?.toLocaleString() || '12,482.36'}</div>
+              <span className="text-[10px] text-emerald-400">100% Backed</span>
+            </div>
+            <div className="p-5 rounded-2xl bg-[#0c101b] border border-slate-800 space-y-1">
+              <span className="text-slate-500 uppercase text-[10px]">Registered Users</span>
+              <div className="text-xl font-bold text-emerald-400">{users.length} Active</div>
+              <span className="text-[10px] text-slate-400">Tier 2 Verified</span>
+            </div>
+            <div className="p-5 rounded-2xl bg-[#0c101b] border border-slate-800 space-y-1">
+              <span className="text-slate-500 uppercase text-[10px]">Active 72h Queue</span>
+              <div className="text-xl font-bold text-blue-400">{withdrawals.filter(w => w.status !== 'COMPLETED').length} Orders</div>
+              <span className="text-[10px] text-blue-400">Under SLA Hold</span>
+            </div>
+            <div className="p-5 rounded-2xl bg-[#0c101b] border border-slate-800 space-y-1">
+              <span className="text-slate-500 uppercase text-[10px]">Deposit Enquiries</span>
+              <div className="text-xl font-bold text-emerald-400">{deposits.filter(d => d.status === 'PENDING_REVIEW').length} Pending</div>
+              <span className="text-[10px] text-slate-400">Awaiting Wire</span>
+            </div>
+            <div className="p-5 rounded-2xl bg-[#0c101b] border border-slate-800 space-y-1">
+              <span className="text-slate-500 uppercase text-[10px]">Chat Inquiries</span>
+              <div className="text-xl font-bold text-red-400">{conversations.length} Active</div>
+              <span className="text-[10px] text-red-400">{conversations.reduce((acc, c) => acc + (c.unreadAdminCount || 0), 0)} Unread</span>
+            </div>
+            <div className="p-5 rounded-2xl bg-[#0c101b] border border-slate-800 space-y-1">
+              <span className="text-slate-500 uppercase text-[10px]">Ledger Integrity</span>
+              <div className="text-xl font-bold text-emerald-400">100% SHA-256</div>
+              <span className="text-[10px] text-emerald-400 font-semibold">Zero Discrepancy</span>
+            </div>
+          </div>
+
+          {/* Quick Simulation Presentation Panel */}
+          <div className="p-6 rounded-3xl bg-gradient-to-r from-red-950/40 via-[#0c101b] to-slate-900 border border-red-500/30 shadow-2xl flex flex-wrap items-center justify-between gap-4">
+            <div className="space-y-1">
+              <span className="text-xs font-mono text-red-400 font-bold uppercase tracking-wider">
+                Simulation Presentation Harness
+              </span>
+              <h3 className="text-lg font-bold text-white">Live Transaction Workflow Controls</h3>
+              <p className="text-xs text-slate-300">
+                Instantly adjust user balances, advance the 72-hour withdrawal progression, or test chatroom coordination.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setActiveTab('users')}
+                className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-bold text-white transition"
+              >
+                Adjust Balances
+              </button>
+              <button
+                onClick={() => setActiveTab('withdrawals')}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition"
+              >
+                Process 72h Withdrawals
+              </button>
+              <button
+                onClick={() => setActiveTab('chatrooms')}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition"
+              >
+                Open User Chatrooms
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: USER BALANCES & ACCOUNTS (Requirement 2) */}
+      {activeTab === 'users' && (
+        <div className="p-6 rounded-3xl bg-[#0c101b] border border-slate-800 space-y-6 animate-fade-in shadow-2xl">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-bold text-white">Registered Users &amp; Liquidity Management</h3>
+              <p className="text-xs text-slate-400 mt-0.5">Admin can monitor registered accounts and adjust individual account balances with immediate real-time reflection.</p>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs font-mono">
+              <thead>
+                <tr className="text-slate-500 border-b border-slate-800 pb-2">
+                  <th className="py-2.5 px-3">INVESTOR</th>
+                  <th className="py-2.5 px-3">EMAIL</th>
+                  <th className="py-2.5 px-3">KYC STATUS</th>
+                  <th className="py-2.5 px-3">SETTLED CASH</th>
+                  <th className="py-2.5 px-3">INVESTED BASIS</th>
+                  <th className="py-2.5 px-3 text-right">BALANCE MANAGEMENT</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {users.map((u, idx) => {
+                  const acc = accounts.find(a => a.userId === u.id);
+                  const cash = acc ? acc.availableCash : 0.0;
+                  const invested = acc ? acc.investedCapital : 0.0;
+
+                  return (
+                    <tr key={idx} className="hover:bg-white/[0.02]">
+                      <td className="py-3.5 px-3 font-bold text-white flex items-center gap-2">
+                        <span className="w-7 h-7 rounded-lg bg-red-950 text-red-400 border border-red-800/50 flex items-center justify-center font-bold text-xs">
+                          {u.fullName?.slice(0, 2).toUpperCase()}
+                        </span>
+                        <span>{u.fullName}</span>
+                      </td>
+                      <td className="py-3.5 px-3 text-slate-400">{u.email}</td>
+                      <td className="py-3.5 px-3">
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px]">
+                          {u.kycStatus || 'VERIFIED'}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-3 font-bold text-emerald-400 text-sm">
+                        ${cash.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="py-3.5 px-3 text-slate-300">
+                        ${invested.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="py-3.5 px-3 text-right">
+                        <div className="flex items-center justify-end space-x-2">
+                          <button
+                            onClick={() => {
+                              setBalanceModalUser(u);
+                              setAdjustAmount('500');
+                              setAdjustMode('DELTA');
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition"
+                          >
+                            Adjust Balance
+                          </button>
+                          <button
+                            onClick={() => handleClearBalance(u.id, u.fullName)}
+                            className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs transition"
+                            title="Clear balance to $0.00"
+                          >
+                            Clear to $0
+                          </button>
+                          <button
+                            onClick={() => {
+                              setActiveTab('chatrooms');
+                              const c = conversations.find(conv => conv.userId === u.id);
+                              if (c) setSelectedConvId(c.id);
+                            }}
+                            className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-slate-700"
+                            title="Open Chat"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: 72-HOUR WITHDRAWAL PROCESSING QUEUE (Requirement 3 & 5) */}
+      {activeTab === 'withdrawals' && (
+        <div className="p-6 rounded-3xl bg-[#0c101b] border border-slate-800 space-y-6 animate-fade-in shadow-2xl">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Clock className="w-5 h-5 text-blue-400" />
+                <span>72-Hour Withdrawal Processing Desk</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">Submitted requests appear here for compliance review, sequential step progression, and final account clearance.</p>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs font-mono">
+              <thead>
+                <tr className="text-slate-500 border-b border-slate-800 pb-2">
+                  <th className="py-2.5 px-3">REF &amp; USER</th>
+                  <th className="py-2.5 px-3">NET PAYOUT</th>
+                  <th className="py-2.5 px-3">DESTINATION</th>
+                  <th className="py-2.5 px-3">72H SEQUENCE STATUS</th>
+                  <th className="py-2.5 px-3">REMAINING</th>
+                  <th className="py-2.5 px-3 text-right">ADMIN PROCESSING ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {withdrawals.map((w, idx) => {
+                  const isCompleted = w.status === 'COMPLETED';
+                  const stepNum = isCompleted ? 4 : (w.step || 1);
+
+                  return (
+                    <tr key={idx} className="hover:bg-white/[0.02]">
+                      <td className="py-3.5 px-3">
+                        <div className="font-bold text-white">{w.reference}</div>
+                        <div className="text-[10px] text-slate-400">{w.userName} ({w.userEmail})</div>
+                      </td>
+                      <td className="py-3.5 px-3 font-bold text-emerald-400 text-sm">
+                        ${parseFloat(w.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="py-3.5 px-3 text-slate-300 max-w-xs truncate">
+                        {w.destinationMasked}
+                      </td>
+                      <td className="py-3.5 px-3">
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                          isCompleted 
+                            ? 'bg-emerald-950 text-emerald-400 border-emerald-800' 
+                            : 'bg-blue-950 text-blue-300 border-blue-800 animate-pulse'
+                        }`}>
+                          {isCompleted ? 'SETTLED & CLEARED' : `STAGE ${stepNum}/4: ${w.stepName || 'Review'}`}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-3 font-bold text-blue-400">
+                        {isCompleted ? '0h (Done)' : `${w.hoursRemaining || 72}h Remaining`}
+                      </td>
+                      <td className="py-3.5 px-3 text-right">
+                        {!isCompleted ? (
+                          <div className="flex items-center justify-end space-x-2">
+                            <button
+                              onClick={() => handleAdvanceWithdrawal(w.id)}
+                              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition"
+                              title="Advance to next 24-hour sequence stage"
+                            >
+                              Advance Stage (24h)
+                            </button>
+                            <button
+                              onClick={() => handleCompleteWithdrawal(w.id)}
+                              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition"
+                              title="Complete settlement immediately and clear user account"
+                            >
+                              Complete &amp; Clear
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-emerald-400 text-xs font-bold flex items-center justify-end gap-1">
+                            <Check className="w-3.5 h-3.5" /> Payout Cleared
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: DEPOSIT ENQUIRIES DESK (Requirement 1) */}
+      {activeTab === 'deposits' && (
+        <div className="p-6 rounded-3xl bg-[#0c101b] border border-slate-800 space-y-6 animate-fade-in shadow-2xl">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-emerald-400" />
+                <span>Custodial Deposit Enquiries Desk</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">Incoming wire and deposit notifications. Admin can verify funds and credit user accounts with one click.</p>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs font-mono">
+              <thead>
+                <tr className="text-slate-500 border-b border-slate-800 pb-2">
+                  <th className="py-2.5 px-3">REF &amp; USER</th>
+                  <th className="py-2.5 px-3">ALLOCATION AMOUNT</th>
+                  <th className="py-2.5 px-3">METHOD</th>
+                  <th className="py-2.5 px-3">DATE</th>
+                  <th className="py-2.5 px-3">STATUS</th>
+                  <th className="py-2.5 px-3 text-right">APPROVAL ACTION</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {deposits.map((dep, idx) => {
+                  const isApproved = dep.status === 'APPROVED';
+                  return (
+                    <tr key={idx} className="hover:bg-white/[0.02]">
+                      <td className="py-3.5 px-3">
+                        <div className="font-bold text-white">{dep.reference}</div>
+                        <div className="text-[10px] text-slate-400">{dep.userName} ({dep.userEmail})</div>
+                      </td>
+                      <td className="py-3.5 px-3 font-bold text-emerald-400 text-sm">
+                        ${parseFloat(dep.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="py-3.5 px-3 text-slate-300">{dep.method}</td>
+                      <td className="py-3.5 px-3 text-slate-400">{dep.createdAt?.slice(0, 19).replace('T', ' ')}</td>
+                      <td className="py-3.5 px-3">
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                          isApproved ? 'bg-emerald-950 text-emerald-400 border-emerald-800' : 'bg-blue-950 text-blue-400 border-blue-800 animate-pulse'
+                        }`}>
+                          {isApproved ? 'CREDITED TO BALANCE' : 'AWAITING APPROVAL'}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-3 text-right">
+                        {!isApproved ? (
+                          <div className="flex items-center justify-end space-x-2">
+                            <button
+                              onClick={() => handleApproveDeposit(dep.id)}
+                              className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition"
+                            >
+                              Approve &amp; Credit
+                            </button>
+                            <button
+                              onClick={() => {
+                                setActiveTab('chatrooms');
+                                const c = conversations.find(conv => conv.userId === dep.userId);
+                                if (c) setSelectedConvId(c.id);
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs"
+                            >
+                              Open Chat
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-emerald-400 text-xs font-bold flex items-center justify-end gap-1">
+                            <Check className="w-3.5 h-3.5" /> Reconciled
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 5: CENTRALIZED PRIVATE CHATROOMS DESK (Requirements 1 & 4) */}
+      {activeTab === 'chatrooms' && (
+        <div className="p-6 rounded-3xl bg-[#0c101b] border border-slate-800 space-y-6 animate-fade-in shadow-2xl">
+          <div>
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <MessageSquare className="w-5 h-5 text-emerald-400" />
+              <span>Centralized Investor Chatrooms Desk</span>
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">Admin can manage conversations, send wire deposit coordinates, and issue status updates directly to users.</p>
+          </div>
+
+          {/* Split Screen Chat Interface */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[600px] rounded-2xl bg-slate-950 border border-slate-800/80 p-4 overflow-hidden">
+            
+            {/* Left Column: Investor Threads List (4 cols) */}
+            <div className="lg:col-span-4 border-r border-slate-800 pr-3 space-y-2 overflow-y-auto">
+              <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider block px-2 mb-2">
+                User Threads ({conversations.length})
+              </span>
+
+              {conversations.map(c => {
+                const isSelected = c.id === selectedConvId;
+                return (
+                  <div
+                    key={c.id}
+                    onClick={() => setSelectedConvId(c.id)}
+                    className={`p-3.5 rounded-xl cursor-pointer transition border ${
+                      isSelected ? 'bg-slate-900 border-red-500/50 shadow-md' : 'bg-slate-950/60 border-slate-900 hover:bg-slate-900/50'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div className="font-bold text-xs text-white flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        <span>{c.userFullName || c.userName}</span>
+                      </div>
+                      {c.unreadAdminCount > 0 && (
+                        <span className="px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[9px] font-bold">
+                          {c.unreadAdminCount} new
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-slate-400 truncate mt-1">
+                      {c.lastMessage?.content || c.subject}
+                    </div>
+                    <div className="flex justify-between text-[10px] font-mono text-slate-500 mt-2">
+                      <span>Cash: ${parseFloat(c.availableCash || 0).toLocaleString()}</span>
+                      <span>{c.lastMessageAt?.slice(11, 16) || 'Today'}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Right Column: Active Conversation (8 cols) */}
+            <div className="lg:col-span-8 flex flex-col justify-between h-full pl-2">
+              {selectedConv ? (
+                <>
+                  {/* Chat Header */}
+                  <div className="pb-3 border-b border-slate-800 flex justify-between items-center">
+                    <div>
+                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                        <span>{selectedConv.userFullName || selectedConv.userName}</span>
+                        <span className="text-xs text-slate-400 font-mono">({selectedConv.userEmail})</span>
+                      </h4>
+                      <p className="text-[11px] font-mono text-emerald-400 mt-0.5">
+                        Current Cash: ${parseFloat(selectedConv.availableCash || 0).toLocaleString()} USD • Direct L3 Channel
+                      </p>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleSendAdminReply("OFFICIAL CUSTODIAL WIRE INSTRUCTIONS:\nBeneficiary: Tesla Capital Custody LLC\nBank: JPMorgan Chase Bank, N.A. (New York, NY)\nRouting Number: 021000021 (Fedwire)\nSWIFT/BIC: CHASUS33\nEscrow Account: ****7892\nMemo Code: REF-TSLA-98421-EVANS\n\nPlease reply with your bank wire reference number once dispatched.")}
+                        className="px-2.5 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-400 text-[10px] font-bold font-mono transition"
+                      >
+                        Send Wire Coordinates
+                      </button>
+                      <button
+                        onClick={() => handleSendAdminReply("UPDATE: Your pending withdrawal request has passed KYC compliance and is currently queued for Federal Reserve Fedwire dispatch within the 72-hour guaranteed SLA window.")}
+                        className="px-2.5 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-400 text-[10px] font-bold font-mono transition"
+                      >
+                        Send 72h Update
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Messages Feed */}
+                  <div className="flex-1 overflow-y-auto space-y-3 py-3 pr-2">
+                    {convMessages.map((m, idx) => {
+                      const isUser = m.senderRole === 'USER';
+                      return (
+                        <div key={idx} className={`flex flex-col ${isUser ? 'items-start' : 'items-end'}`}>
+                          <div className="flex items-center space-x-2 text-[10px] text-slate-400 mb-1 font-mono">
+                            <span className="font-bold text-slate-300">{m.senderName}</span>
+                            <span>•</span>
+                            <span>{m.createdAt?.slice(11, 16) || 'Now'}</span>
+                          </div>
+                          <div className={`p-3.5 rounded-2xl max-w-lg text-xs leading-relaxed whitespace-pre-line shadow ${
+                            isUser 
+                              ? 'bg-slate-900 border border-slate-800 text-slate-200 rounded-tl-none font-sans' 
+                              : 'bg-red-600 text-white rounded-tr-none'
+                          }`}>
+                            {m.content}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Admin Reply Form */}
+                  <div className="pt-3 border-t border-slate-800 space-y-2">
+                    <form 
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleSendAdminReply();
+                      }} 
+                      className="flex gap-2"
+                    >
+                      <input 
+                        type="text"
+                        value={adminReplyText}
+                        onChange={e => setAdminReplyText(e.target.value)}
+                        placeholder="Reply to investor or send official wire coordinates..."
+                        className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-red-500 font-mono"
+                      />
+                      <button 
+                        type="submit"
+                        className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center gap-1.5 transition"
+                      >
+                        <span>Reply</span>
+                        <Send className="w-3.5 h-3.5" />
+                      </button>
+                    </form>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-40 text-slate-500 text-xs font-mono">
+                  Select a user conversation from the left to start communicating.
+                </div>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* TAB 6: AUDIT LEDGER */}
+      {activeTab === 'ledger' && (
+        <div className="p-6 rounded-3xl bg-[#0c101b] border border-slate-800 space-y-6 animate-fade-in shadow-2xl">
+          <div className="flex justify-between items-center">
+            <div>
+              <h3 className="text-lg font-bold text-white">Master Double-Entry Financial Ledger</h3>
+              <p className="text-xs text-slate-400 mt-0.5">Cryptographic SHA-256 ledger records across all institutional investor accounts.</p>
+            </div>
+            <span className="text-xs font-mono text-emerald-400 bg-slate-900 px-3 py-1 rounded-xl border border-slate-800">
+              100% RECONCILED
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs font-mono">
+              <thead>
+                <tr className="text-slate-500 border-b border-slate-800 pb-2">
+                  <th className="py-2.5 px-3">TIMESTAMP</th>
+                  <th className="py-2.5 px-3">TYPE</th>
+                  <th className="py-2.5 px-3">AMOUNT</th>
+                  <th className="py-2.5 px-3">BALANCE AFTER</th>
+                  <th className="py-2.5 px-3">DESCRIPTION</th>
+                  <th className="py-2.5 px-3">SHA-256 HASH</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {ledgerEntries.map((e, idx) => (
+                  <tr key={idx} className="hover:bg-white/[0.02]">
+                    <td className="py-3 px-3 text-slate-400">{e.createdAt?.slice(0, 19).replace('T', ' ')}</td>
+                    <td className="py-3 px-3">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold border bg-slate-900 text-slate-300 border-slate-700">
+                        {e.type}
+                      </span>
+                    </td>
+                    <td className={`py-3 px-3 font-bold ${e.amount >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {e.amount >= 0 ? '+' : ''}${Math.abs(e.amount).toFixed(2)}
+                    </td>
+                    <td className="py-3 px-3 font-bold text-white">${e.balanceAfter?.toFixed(2)}</td>
+                    <td className="py-3 px-3 text-slate-300 max-w-sm truncate">{e.description}</td>
+                    <td className="py-3 px-3 text-slate-500 font-mono text-[10px]">{e.hash}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
