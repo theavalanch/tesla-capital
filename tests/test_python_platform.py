@@ -3,7 +3,7 @@ import urllib.error
 import json
 import sys
 
-BASE_URL = "http://localhost:3000"
+BASE_URL = "http://127.0.0.1:3000"
 
 def run_test(name, func):
     try:

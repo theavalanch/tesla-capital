@@ -358,7 +358,7 @@ os.makedirs(STATIC_DIR, exist_ok=True)
 if os.path.exists(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-@app.get("/{full_path:path}")
+@app.api_route("/{full_path:path}", methods=["GET", "HEAD"])
 async def serve_spa(full_path: str):
     # If looking for a static file that exists
     potential_file = os.path.join(STATIC_DIR, full_path)
