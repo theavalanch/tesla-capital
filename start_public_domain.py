@@ -1,12 +1,11 @@
 """
-Tesla Capital - Automated Multi-Provider Public Domain & Tunnel Manager
-Triple-Redundancy Failover System:
+Tesla Capital - Automated Public Domain & Dual Tunnel Manager (Localtunnel & Localhost.run)
+High-Availability Dual Non-Cloudflare Failover System:
 1. Runs and monitors Tesla Capital backend on http://127.0.0.1:3000
-2. Spins up 3 independent public HTTPS tunnels:
-   - Cloudflare Quick Tunnel (*.trycloudflare.com)
-   - Localtunnel (*.loca.lt)
-   - Localhost.run SSH Tunnel (*.lhr.life)
-3. Persists live domains to active_domain.txt & active_domain.json
+2. Spins up 2 independent public HTTPS tunnels:
+   - Primary: Localtunnel (*.loca.lt)
+   - Secondary: Localhost.run SSH Tunnel (*.lhr.life)
+3. Persists live non-Cloudflare domains to active_domain.txt & active_domain.json
 4. Automatically copies primary domain to clipboard
 5. Verifies public link reachability over the web
 """
@@ -23,13 +22,11 @@ import subprocess
 import threading
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-CLOUDFLARED_EXE = os.path.join(ROOT_DIR, "cloudflared.exe")
 ACTIVE_DOMAIN_FILE = os.path.join(ROOT_DIR, "active_domain.txt")
 ACTIVE_DOMAIN_JSON = os.path.join(ROOT_DIR, "active_domain.json")
 BACKEND_LOG_FILE = os.path.join(ROOT_DIR, "backend.log")
 
 active_domains = {
-    "cloudflare": None,
     "localtunnel": None,
     "localhost_run": None
 }
@@ -64,7 +61,6 @@ def ensure_backend_running():
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
     )
     
-    # Wait for backend to be healthy
     for i in range(25):
         time.sleep(1)
         if is_backend_healthy():
@@ -87,14 +83,16 @@ def update_active_domain(key, url):
     global clipboard_copied
     with domain_lock:
         active_domains[key] = url
-        live_list = [u for u in active_domains.values() if u]
+        # Ensure Localtunnel is first, Localhost.run second
+        ordered_keys = ["localtunnel", "localhost_run"]
+        live_list = [active_domains[k] for k in ordered_keys if active_domains.get(k)]
         try:
             with open(ACTIVE_DOMAIN_FILE, "w", encoding="utf-8") as f:
                 f.write("\n".join(live_list) + "\n")
             with open(ACTIVE_DOMAIN_JSON, "w", encoding="utf-8") as f:
                 json.dump({
                     "updated_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
-                    "domains": active_domains
+                    "domains": {k: active_domains[k] for k in ordered_keys if active_domains.get(k)}
                 }, f, indent=2)
         except Exception as e:
             print(f"[!] Error saving active domain: {e}")
@@ -113,54 +111,6 @@ def verify_public_url(url, timeout=10):
             return resp.status == 200
     except Exception:
         return False
-
-def run_cloudflared_tunnel():
-    if not os.path.isfile(CLOUDFLARED_EXE):
-        print(f"[!] cloudflared.exe not found at {CLOUDFLARED_EXE}")
-        return
-
-    url_regex = re.compile(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com')
-
-    while True:
-        print("\n[*] Initializing Cloudflare tunnel connection to http://127.0.0.1:3000...")
-        try:
-            proc = subprocess.Popen(
-                [CLOUDFLARED_EXE, "tunnel", "--url", "http://127.0.0.1:3000"],
-                cwd=ROOT_DIR,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1
-            )
-
-            for line in iter(proc.stdout.readline, ''):
-                line_str = line.strip()
-                match = url_regex.search(line_str)
-                if match:
-                    current_url = match.group(0)
-                    update_active_domain("cloudflare", current_url)
-
-                    print("\n" + "=" * 76)
-                    print("  [SUCCESS] CLOUDFLARE PUBLIC HTTPS DOMAIN IS LIVE:")
-                    print(f"  >>> {current_url} <<<")
-                    print("=" * 76)
-                    print("  [i] Saved to active_domain.txt & copied to clipboard!")
-
-                if "Registered tunnel connection" in line_str or "Connection" in line_str:
-                    print(f"  [Cloudflare] {line_str}")
-
-            proc.wait()
-            print("[!] Cloudflare tunnel connection closed. Auto-reconnecting in 3s...")
-            time.sleep(3)
-
-        except KeyboardInterrupt:
-            print("\nCloudflare tunnel stopped.")
-            break
-        except Exception as e:
-            print(f"[!] Cloudflare tunnel error: {e}. Reconnecting in 3s...")
-            time.sleep(3)
 
 def run_localtunnel():
     npx_bin = shutil.which("npx") or "npx.cmd"
@@ -191,7 +141,7 @@ def run_localtunnel():
                     print("  [SUCCESS] LOCALTUNNEL PUBLIC HTTPS DOMAIN IS LIVE:")
                     print(f"  >>> {current_url} <<<")
                     print("=" * 76)
-                    print("  [i] Saved to active_domain.txt!")
+                    print("  [i] Saved to active_domain.txt & copied to clipboard!")
 
             proc.wait()
             print("[!] Localtunnel connection closed. Auto-reconnecting in 3s...")
@@ -257,19 +207,17 @@ def run_localhost_run_tunnel():
 
 def main():
     print("=" * 76)
-    print("  TESLA CAPITAL - HIGH-AVAILABILITY TRIPLE-TUNNEL PUBLIC DOMAIN MANAGER")
+    print("  TESLA CAPITAL - HIGH-AVAILABILITY PUBLIC DOMAIN MANAGER")
+    print("  Providers: Localtunnel (*.loca.lt) + Localhost.run (*.lhr.life)")
     print("=" * 76)
 
     # 1. Ensure backend is running
     ensure_backend_running()
 
-    # 2. Start all 3 tunnel providers concurrently
-    t_cf = threading.Thread(target=run_cloudflared_tunnel, daemon=True)
+    # 2. Start Localtunnel and Localhost.run tunnels concurrently
     t_lt = threading.Thread(target=run_localtunnel, daemon=True)
     t_lhr = threading.Thread(target=run_localhost_run_tunnel, daemon=True)
     
-    t_cf.start()
-    time.sleep(1)
     t_lt.start()
     time.sleep(1)
     t_lhr.start()

@@ -5,11 +5,10 @@ cls
 echo ==============================================================================
 echo  TESLA CAPITAL - HIGH AVAILABILITY PUBLIC DOMAIN LAUNCHER
 echo ==============================================================================
-echo  Triple-Redundant Automatic Failover & Watchdog Reconnect
+echo  Dual Non-Cloudflare Tunnels: Localtunnel (*.loca.lt) + Localhost.run (*.lhr.life)
 echo  Local Server Target : http://127.0.0.1:3000
-echo  Tunnels Active      : Cloudflare + Localtunnel + Localhost.run
 echo ==============================================================================
 echo.
-echo Starting all tunnels and backend watchdog...
+echo Starting Localtunnel, Localhost.run and backend watchdog...
 python start_public_domain.py
 pause

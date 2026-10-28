@@ -84,31 +84,22 @@ export default function LoginPage() {
           {/* Quick One-Click Demo Access Bar */}
           <div className="p-3.5 rounded-2xl bg-[#10141E] border border-white/5 space-y-2.5">
             <div className="text-[10px] uppercase font-mono tracking-widest text-gray-400 text-center font-bold">
-              Instant One-Click Demo Access
+              Instant One-Click Investor Access
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div>
               <button
                 type="button"
                 onClick={() => handleQuickLogin('investor@tesla-invest.com', 'Password123!')}
-                className="p-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.08] border border-white/5 text-left text-xs transition-all group"
+                className="w-full p-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.08] border border-white/5 text-left text-xs transition-all group flex items-center justify-between"
               >
-                <div className="font-bold text-emerald-400 flex items-center space-x-1.5">
-                  <UserCheck className="w-3.5 h-3.5" />
-                  <span>Jason Evans</span>
+                <div>
+                  <div className="font-bold text-emerald-400 flex items-center space-x-1.5">
+                    <UserCheck className="w-3.5 h-3.5" />
+                    <span>Jason Evans (Investor Account)</span>
+                  </div>
+                  <div className="text-[10px] text-gray-400 mt-0.5">$12,482 AUM • Verified Double-Entry Custody</div>
                 </div>
-                <div className="text-[10px] text-gray-400 mt-0.5">$12,482 AUM</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickLogin('admin@tesla-invest.com', 'AdminPass123!')}
-                className="p-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.08] border border-white/5 text-left text-xs transition-all group"
-              >
-                <div className="font-bold text-[#E82127] flex items-center space-x-1.5">
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>Tesla Admin</span>
-                </div>
-                <div className="text-[10px] text-gray-400 mt-0.5">Ledger Ops</div>
+                <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Active</span>
               </button>
             </div>
           </div>

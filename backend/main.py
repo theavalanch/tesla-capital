@@ -533,6 +533,26 @@ async def admin_list_conversations(request: Request):
     if user.get("role") != "ADMIN":
         raise HTTPException(status_code=403, detail="Admin authorization required")
 
+    # Ensure all registered non-admin users have a conversation object
+    existing_user_ids = {c.get("userId") for c in db.data["conversations"]}
+    for u in db.data["users"]:
+        if u.get("role") != "ADMIN" and u["id"] not in existing_user_ids:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            new_conv = {
+                "id": f"conv_{uuid.uuid4().hex[:8]}",
+                "userId": u["id"],
+                "userName": u["fullName"],
+                "userEmail": u["email"],
+                "subject": "Institutional Custody & Trading Channel",
+                "unreadAdminCount": 0,
+                "unreadUserCount": 0,
+                "createdAt": u.get("createdAt", now_iso),
+                "lastMessageAt": u.get("createdAt", now_iso)
+            }
+            db.data["conversations"].append(new_conv)
+            existing_user_ids.add(u["id"])
+    db.save()
+
     enriched = []
     for c in db.data["conversations"]:
         c_msgs = [m for m in db.data["messages"] if m["conversationId"] == c["id"]]
@@ -560,8 +580,27 @@ async def admin_get_conversation_messages(conv_id: str, request: Request):
         if c["id"] == conv_id or c.get("userId") == conv_id or (conv_id.startswith("conv_") and conv_id.endswith(c.get("userId", ""))):
             conv = c
             break
+
     if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        # Check if conv_id is a valid user ID to create conversation on demand
+        target_u = db.get_user_by_id(conv_id)
+        if target_u:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            conv = {
+                "id": f"conv_{uuid.uuid4().hex[:8]}",
+                "userId": target_u["id"],
+                "userName": target_u["fullName"],
+                "userEmail": target_u["email"],
+                "subject": "Institutional Custody & Trading Channel",
+                "unreadAdminCount": 0,
+                "unreadUserCount": 0,
+                "createdAt": now_iso,
+                "lastMessageAt": now_iso
+            }
+            db.data["conversations"].append(conv)
+            db.save()
+        else:
+            raise HTTPException(status_code=404, detail="Conversation not found")
 
     target_id = conv["id"]
     for m in db.data["messages"]:
@@ -592,8 +631,26 @@ async def admin_post_conversation_message(conv_id: str, req: AdminReplyRequest, 
         if c["id"] == conv_id or c.get("userId") == conv_id or (conv_id.startswith("conv_") and conv_id.endswith(c.get("userId", ""))):
             conv = c
             break
+
     if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        target_u = db.get_user_by_id(conv_id)
+        if target_u:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            conv = {
+                "id": f"conv_{uuid.uuid4().hex[:8]}",
+                "userId": target_u["id"],
+                "userName": target_u["fullName"],
+                "userEmail": target_u["email"],
+                "subject": "Institutional Custody & Trading Channel",
+                "unreadAdminCount": 0,
+                "unreadUserCount": 0,
+                "createdAt": now_iso,
+                "lastMessageAt": now_iso
+            }
+            db.data["conversations"].append(conv)
+            db.save()
+        else:
+            raise HTTPException(status_code=404, detail="Conversation not found")
 
     target_id = conv["id"]
     now = datetime.now(timezone.utc).isoformat()
