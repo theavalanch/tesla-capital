@@ -154,3 +154,39 @@
   animation-play-state: paused;
 }
 
+/* WhatsApp Dark Theme Wallpaper & Chat Utilities */
+.whatsapp-chat-bg {
+  background-color: #0b141a;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px), radial-gradient(rgba(0, 168, 132, 0.025) 1.5px, transparent 1.5px);
+  background-size: 32px 32px;
+  background-position: 0 0, 16px 16px;
+}
+
+.whatsapp-bubble-tail-out {
+  position: relative;
+}
+.whatsapp-bubble-tail-out::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: -6px;
+  width: 0;
+  height: 0;
+  border-top: 8px solid #005c4b;
+  border-right: 8px solid transparent;
+}
+
+.whatsapp-bubble-tail-in {
+  position: relative;
+}
+.whatsapp-bubble-tail-in::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -6px;
+  width: 0;
+  height: 0;
+  border-top: 8px solid #202c33;
+  border-left: 8px solid transparent;
+}
+
