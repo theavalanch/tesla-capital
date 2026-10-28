@@ -1,12 +1,13 @@
 """
-Tesla Capital - Automated Public Domain & Dual Tunnel Manager
-High-Availability Failover System:
+Tesla Capital - Automated Multi-Provider Public Domain & Tunnel Manager
+Triple-Redundancy Failover System:
 1. Runs and monitors Tesla Capital backend on http://127.0.0.1:3000
-2. Spins up redundant public HTTPS tunnels:
+2. Spins up 3 independent public HTTPS tunnels:
    - Cloudflare Quick Tunnel (*.trycloudflare.com)
+   - Localtunnel (*.loca.lt)
    - Localhost.run SSH Tunnel (*.lhr.life)
-3. Persists live domains to active_domain.txt
-4. Copies primary domain to clipboard
+3. Persists live domains to active_domain.txt & active_domain.json
+4. Automatically copies primary domain to clipboard
 5. Verifies public link reachability over the web
 """
 
@@ -14,20 +15,22 @@ import os
 import sys
 import time
 import re
-import socket
+import json
+import shutil
 import urllib.request
 import urllib.error
 import subprocess
-import webbrowser
 import threading
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 CLOUDFLARED_EXE = os.path.join(ROOT_DIR, "cloudflared.exe")
 ACTIVE_DOMAIN_FILE = os.path.join(ROOT_DIR, "active_domain.txt")
+ACTIVE_DOMAIN_JSON = os.path.join(ROOT_DIR, "active_domain.json")
 BACKEND_LOG_FILE = os.path.join(ROOT_DIR, "backend.log")
 
 active_domains = {
     "cloudflare": None,
+    "localtunnel": None,
     "localhost_run": None
 }
 domain_lock = threading.Lock()
@@ -36,7 +39,7 @@ clipboard_copied = False
 def is_backend_healthy():
     try:
         req = urllib.request.Request("http://127.0.0.1:3000/", headers={"User-Agent": "HealthCheck/1.0"})
-        with urllib.request.urlopen(req, timeout=2) as resp:
+        with urllib.request.urlopen(req, timeout=3) as resp:
             return resp.status == 200
     except Exception:
         return False
@@ -88,6 +91,11 @@ def update_active_domain(key, url):
         try:
             with open(ACTIVE_DOMAIN_FILE, "w", encoding="utf-8") as f:
                 f.write("\n".join(live_list) + "\n")
+            with open(ACTIVE_DOMAIN_JSON, "w", encoding="utf-8") as f:
+                json.dump({
+                    "updated_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+                    "domains": active_domains
+                }, f, indent=2)
         except Exception as e:
             print(f"[!] Error saving active domain: {e}")
             
@@ -106,13 +114,12 @@ def verify_public_url(url, timeout=10):
     except Exception:
         return False
 
-def run_cloudflared_tunnel(open_browser_on_start=False):
+def run_cloudflared_tunnel():
     if not os.path.isfile(CLOUDFLARED_EXE):
         print(f"[!] cloudflared.exe not found at {CLOUDFLARED_EXE}")
-        return False
+        return
 
     url_regex = re.compile(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com')
-    opened = False
 
     while True:
         print("\n[*] Initializing Cloudflare tunnel connection to http://127.0.0.1:3000...")
@@ -141,10 +148,6 @@ def run_cloudflared_tunnel(open_browser_on_start=False):
                     print("=" * 76)
                     print("  [i] Saved to active_domain.txt & copied to clipboard!")
 
-                    if open_browser_on_start and not opened:
-                        webbrowser.open(current_url)
-                        opened = True
-
                 if "Registered tunnel connection" in line_str or "Connection" in line_str:
                     print(f"  [Cloudflare] {line_str}")
 
@@ -153,22 +156,64 @@ def run_cloudflared_tunnel(open_browser_on_start=False):
             time.sleep(3)
 
         except KeyboardInterrupt:
-            print("\nCloudflare tunnel stopped by user.")
+            print("\nCloudflare tunnel stopped.")
             break
         except Exception as e:
             print(f"[!] Cloudflare tunnel error: {e}. Reconnecting in 3s...")
             time.sleep(3)
 
-def run_localhost_run_tunnel(open_browser_on_start=False):
+def run_localtunnel():
+    npx_bin = shutil.which("npx") or "npx.cmd"
+    url_regex = re.compile(r'https://[a-zA-Z0-9-]+\.loca\.lt')
+
+    while True:
+        print("\n[*] Initializing Localtunnel connection to http://127.0.0.1:3000...")
+        try:
+            proc = subprocess.Popen(
+                [npx_bin, "localtunnel", "--port", "3000"],
+                cwd=ROOT_DIR,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1
+            )
+
+            for line in iter(proc.stdout.readline, ''):
+                line_str = line.strip()
+                match = url_regex.search(line_str)
+                if match:
+                    current_url = match.group(0)
+                    update_active_domain("localtunnel", current_url)
+
+                    print("\n" + "=" * 76)
+                    print("  [SUCCESS] LOCALTUNNEL PUBLIC HTTPS DOMAIN IS LIVE:")
+                    print(f"  >>> {current_url} <<<")
+                    print("=" * 76)
+                    print("  [i] Saved to active_domain.txt!")
+
+            proc.wait()
+            print("[!] Localtunnel connection closed. Auto-reconnecting in 3s...")
+            time.sleep(3)
+
+        except KeyboardInterrupt:
+            print("\nLocaltunnel stopped.")
+            break
+        except Exception as e:
+            print(f"[!] Localtunnel error: {e}. Reconnecting in 3s...")
+            time.sleep(3)
+
+def run_localhost_run_tunnel():
+    ssh_bin = shutil.which("ssh") or "ssh"
     url_regex = re.compile(r'https://[a-zA-Z0-9-]+\.lhr\.life')
-    opened = False
 
     while True:
         print("\n[*] Initializing Localhost.run SSH tunnel to http://127.0.0.1:3000...")
         try:
             proc = subprocess.Popen(
                 [
-                    "ssh",
+                    ssh_bin,
                     "-o", "StrictHostKeyChecking=no",
                     "-o", "ServerAliveInterval=15",
                     "-o", "ServerAliveCountMax=3",
@@ -196,10 +241,6 @@ def run_localhost_run_tunnel(open_browser_on_start=False):
                     print("=" * 76)
                     print("  [i] Saved to active_domain.txt!")
 
-                    if open_browser_on_start and not opened and not active_domains.get("cloudflare"):
-                        webbrowser.open(current_url)
-                        opened = True
-
                 if "tunneled with tls" in line_str or "connection id" in line_str:
                     print(f"  [localhost.run] {line_str}")
 
@@ -208,7 +249,7 @@ def run_localhost_run_tunnel(open_browser_on_start=False):
             time.sleep(2)
 
         except KeyboardInterrupt:
-            print("\nLocalhost.run tunnel stopped by user.")
+            print("\nLocalhost.run tunnel stopped.")
             break
         except Exception as e:
             print(f"[!] Localhost.run error: {e}. Reconnecting in 2s...")
@@ -216,44 +257,32 @@ def run_localhost_run_tunnel(open_browser_on_start=False):
 
 def main():
     print("=" * 76)
-    print("  TESLA CAPITAL - HIGH-AVAILABILITY DUAL TUNNEL & PUBLIC DOMAIN LAUNCHER")
+    print("  TESLA CAPITAL - HIGH-AVAILABILITY TRIPLE-TUNNEL PUBLIC DOMAIN MANAGER")
     print("=" * 76)
 
     # 1. Ensure backend is running
     ensure_backend_running()
 
-    # 2. Parse mode
-    mode = "dual"
-    if len(sys.argv) > 1:
-        arg = sys.argv[1].lower()
-        if arg in ["cf", "cloudflare"]:
-            mode = "cloudflare"
-        elif arg in ["lhr", "localhost", "ssh"]:
-            mode = "localhost.run"
-        elif arg in ["dual", "both", "all"]:
-            mode = "dual"
+    # 2. Start all 3 tunnel providers concurrently
+    t_cf = threading.Thread(target=run_cloudflared_tunnel, daemon=True)
+    t_lt = threading.Thread(target=run_localtunnel, daemon=True)
+    t_lhr = threading.Thread(target=run_localhost_run_tunnel, daemon=True)
+    
+    t_cf.start()
+    time.sleep(1)
+    t_lt.start()
+    time.sleep(1)
+    t_lhr.start()
 
-    print(f"[*] Starting tunnel mode: {mode.upper()}")
-
-    if mode == "cloudflare":
-        run_cloudflared_tunnel(open_browser_on_start=True)
-    elif mode == "localhost.run":
-        run_localhost_run_tunnel(open_browser_on_start=True)
-    else:
-        # Dual Mode: run Cloudflare and Localhost.run concurrently
-        t_cf = threading.Thread(target=run_cloudflared_tunnel, args=(True,), daemon=True)
-        t_lhr = threading.Thread(target=run_localhost_run_tunnel, args=(False,), daemon=True)
-        
-        t_cf.start()
-        time.sleep(1)
-        t_lhr.start()
-
-        # Keep main thread alive
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            print("\nShutting down public tunnels...")
+    # 3. Persistent watchdog loop
+    try:
+        while True:
+            time.sleep(10)
+            if not is_backend_healthy():
+                print("[!] Backend check failed! Restarting backend...")
+                ensure_backend_running()
+    except KeyboardInterrupt:
+        print("\nShutting down public tunnels...")
 
 if __name__ == "__main__":
     main()
