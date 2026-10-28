@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import AdminSidebar from '@/components/AdminSidebar';
 import {
   Search,
@@ -13,6 +14,7 @@ import {
   CheckCircle2,
   Sliders,
   X,
+  MessageSquare,
 } from 'lucide-react';
 
 export default function AdminUsersPage() {
@@ -106,7 +108,7 @@ export default function AdminUsersPage() {
   const resultingCash = Math.round((currentCash + numAmt) * 100) / 100;
 
   return (
-    <div className="flex min-h-screen bg-[#08090C] text-[#F3F4F6]">
+    <div className="flex flex-col md:flex-row min-h-screen bg-[#08090C] text-[#F3F4F6]">
       <AdminSidebar />
 
       <main className="flex-1 p-8 max-w-7xl w-full mx-auto space-y-6">
@@ -184,6 +186,13 @@ export default function AdminUsersPage() {
                         </span>
                       </td>
                       <td className="py-4 px-6 text-right space-x-2">
+                        <Link
+                          href={`/admin/messages?userId=${u.id}`}
+                          className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-white border border-white/10 text-xs font-semibold transition-colors inline-flex items-center space-x-1"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 text-[#E82127]" />
+                          <span>Message</span>
+                        </Link>
                         <button
                           onClick={() => handleOpenAdjustment(u)}
                           className="px-3 py-1.5 rounded-xl bg-[#E82127]/15 hover:bg-[#E82127]/25 text-[#E82127] border border-[#E82127]/30 text-xs font-semibold transition-colors"

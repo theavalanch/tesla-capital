@@ -24,7 +24,7 @@ export default function AdminAuditLogsPage() {
   }, [filterAction]);
 
   return (
-    <div className="flex min-h-screen bg-[#08090C] text-[#F3F4F6]">
+    <div className="flex flex-col md:flex-row min-h-screen bg-[#08090C] text-[#F3F4F6]">
       <AdminSidebar />
 
       <main className="flex-1 p-8 max-w-7xl w-full mx-auto space-y-6">

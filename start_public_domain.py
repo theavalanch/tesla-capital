@@ -79,7 +79,20 @@ def copy_to_clipboard(text):
     except Exception:
         pass
 
-def update_active_domain(key, url):
+def get_public_ip():
+    try:
+        req = urllib.request.Request("https://loca.lt/mytunnelpassword", headers={"User-Agent": "curl/7.68.0"})
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            return resp.read().decode('utf-8').strip()
+    except Exception:
+        try:
+            req = urllib.request.Request("https://api.ipify.org", headers={"User-Agent": "curl/7.68.0"})
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                return resp.read().decode('utf-8').strip()
+        except Exception:
+            return "105.112.220.84"
+
+def update_active_domain(key, url, password=None):
     global clipboard_copied
     with domain_lock:
         active_domains[key] = url
@@ -92,7 +105,8 @@ def update_active_domain(key, url):
             with open(ACTIVE_DOMAIN_JSON, "w", encoding="utf-8") as f:
                 json.dump({
                     "updated_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
-                    "domains": {k: active_domains[k] for k in ordered_keys if active_domains.get(k)}
+                    "domains": {k: active_domains[k] for k in ordered_keys if active_domains.get(k)},
+                    "tunnel_password_ip": password or get_public_ip()
                 }, f, indent=2)
         except Exception as e:
             print(f"[!] Error saving active domain: {e}")
@@ -105,7 +119,10 @@ def verify_public_url(url, timeout=10):
     try:
         req = urllib.request.Request(
             url,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Bypass-Tunnel-Reminder": "true"
+            }
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status == 200
@@ -113,14 +130,21 @@ def verify_public_url(url, timeout=10):
         return False
 
 def run_localtunnel():
-    npx_bin = shutil.which("npx") or "npx.cmd"
+    lt_bin = shutil.which("lt") or shutil.which("lt.cmd")
+    npx_bin = shutil.which("npx") or shutil.which("npx.cmd") or "npx.cmd"
+    subdomain = os.environ.get("LT_SUBDOMAIN", "plenty-hats-repair")
     url_regex = re.compile(r'https://[a-zA-Z0-9-]+\.loca\.lt')
 
     while True:
-        print("\n[*] Initializing Localtunnel connection to http://127.0.0.1:3000...")
+        print(f"\n[*] Initializing Localtunnel connection to http://127.0.0.1:3000 (subdomain: {subdomain})...", flush=True)
         try:
+            if lt_bin:
+                cmd = [lt_bin, "--port", "3000", "--subdomain", subdomain]
+            else:
+                cmd = [npx_bin, "localtunnel", "--port", "3000", "--subdomain", subdomain]
+
             proc = subprocess.Popen(
-                [npx_bin, "localtunnel", "--port", "3000"],
+                cmd,
                 cwd=ROOT_DIR,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -132,26 +156,31 @@ def run_localtunnel():
 
             for line in iter(proc.stdout.readline, ''):
                 line_str = line.strip()
+                if line_str:
+                    print(f"  [localtunnel] {line_str}", flush=True)
                 match = url_regex.search(line_str)
                 if match:
                     current_url = match.group(0)
-                    update_active_domain("localtunnel", current_url)
+                    tunnel_pw = get_public_ip()
+                    update_active_domain("localtunnel", current_url, password=tunnel_pw)
 
-                    print("\n" + "=" * 76)
-                    print("  [SUCCESS] LOCALTUNNEL PUBLIC HTTPS DOMAIN IS LIVE:")
-                    print(f"  >>> {current_url} <<<")
-                    print("=" * 76)
-                    print("  [i] Saved to active_domain.txt & copied to clipboard!")
+                    print("\n" + "=" * 76, flush=True)
+                    print("  [SUCCESS] LOCALTUNNEL PUBLIC HTTPS DOMAIN IS LIVE:", flush=True)
+                    print(f"  >>> {current_url} <<<", flush=True)
+                    if tunnel_pw:
+                        print(f"  [i] Tunnel Password / IP (if prompted by loca.lt): {tunnel_pw}", flush=True)
+                    print("=" * 76, flush=True)
+                    print("  [i] Saved to active_domain.txt & copied to clipboard!", flush=True)
 
             proc.wait()
-            print("[!] Localtunnel connection closed. Auto-reconnecting in 3s...")
+            print("[!] Localtunnel connection closed. Auto-reconnecting in 3s...", flush=True)
             time.sleep(3)
 
         except KeyboardInterrupt:
-            print("\nLocaltunnel stopped.")
+            print("\nLocaltunnel stopped.", flush=True)
             break
         except Exception as e:
-            print(f"[!] Localtunnel error: {e}. Reconnecting in 3s...")
+            print(f"[!] Localtunnel error: {e}. Reconnecting in 3s...", flush=True)
             time.sleep(3)
 
 def run_localhost_run_tunnel():

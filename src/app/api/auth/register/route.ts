@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
 
     response.cookies.set('tesla_auth_token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: req.nextUrl.protocol === 'https:',
       sameSite: 'lax',
       path: '/',
       maxAge: 7 * 24 * 3600,
