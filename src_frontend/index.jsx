@@ -445,7 +445,7 @@ function App() {
       )}
 
       {currentView === 'messages' && (
-        <MessagesView currentUser={currentUser} onNavigate={(v) => setCurrentView(v)} />
+        <MessagesView currentUser={currentUser} onNavigate={(v) => setCurrentView(v)} onLogout={handleLogout} />
       )}
 
       {currentView === 'admin' && (
@@ -2617,12 +2617,14 @@ function TransactionsView({ currentUser }) {
 
 // =========================================================================
 // 7. USER PRIVATE CHATROOM VIEW (WITH TESLA OPERATIONS DESK - REQ 1)
+// 7. USER PRIVATE CHATROOM VIEW (WITH TESLA OPERATIONS DESK)
 // =========================================================================
-function MessagesView({ currentUser, onNavigate }) {
+function MessagesView({ currentUser, onNavigate, onLogout }) {
   const [messages, setMessages] = useState([]);
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
-  const messagesEndRef = useRef(null);
+  const chatContainerRef = useRef(null);
+  const inputRef = useRef(null);
 
   const fetchMessages = () => {
     fetch('/api/messages')
@@ -2637,8 +2639,11 @@ function MessagesView({ currentUser, onNavigate }) {
     return () => clearInterval(interval);
   }, []);
 
+  // Internal scroll only: guarantees the website/page does NOT scroll down
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
   }, [messages]);
 
   const handleSend = async (e) => {
@@ -2656,92 +2661,149 @@ function MessagesView({ currentUser, onNavigate }) {
     });
     setLoading(false);
     fetchMessages();
+    inputRef.current?.focus();
   };
 
   const handleQuickPrompt = (promptText) => {
     setContent(promptText);
+    inputRef.current?.focus();
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+    <div className="fixed inset-0 h-screen max-h-screen w-screen overflow-hidden flex flex-col bg-[#070c18] text-slate-100 font-sans z-40">
       
-      {/* Chatroom Header */}
-      <div className="p-6 rounded-3xl bg-[#0c101b] border border-slate-800 shadow-2xl flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center space-x-4">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-red-600 to-red-900 text-white flex items-center justify-center font-bold text-xl shadow-lg shadow-red-950/60 border border-red-500/30">
-            <Lock className="w-6 h-6" />
+      {/* Chatroom Top Bar (Matching photo with Dashboard link and Gold-bordered Logout button) */}
+      <header className="h-16 px-4 sm:px-8 bg-[#0c1424] border-b border-slate-800/80 flex items-center justify-between shrink-0 z-30 shadow-md">
+        <div className="flex items-center space-x-3.5">
+          <div className="relative shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-[#E82127]/20 border border-[#E82127]/40 text-[#E82127] flex items-center justify-center font-bold text-base shadow-lg">
+              <Lock className="w-5 h-5" />
+            </div>
+            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[#0c1424] animate-pulse"></span>
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <h2 className="text-xl font-bold text-white">Tesla Operations Administrative Desk</h2>
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+              <h2 className="text-sm sm:text-base font-bold text-white">Tesla Operations Administrative Desk</h2>
+              <span className="hidden sm:inline-flex text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-mono">
+                Official
+              </span>
             </div>
-            <p className="text-xs font-mono text-slate-400 mt-0.5">
+            <p className="text-[11px] font-mono text-slate-400 mt-0.5">
               Encrypted Private 1-on-1 Channel • <span className="text-emerald-400 font-semibold">Tier 2 Authorized</span>
             </p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        {/* Right Navigation: Dashboard & Logout with gold border (as seen in photo) */}
+        <div className="flex items-center space-x-3 sm:space-x-4 shrink-0">
           <button
-            onClick={() => onNavigate && onNavigate('deposit')}
-            className="px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-400 text-xs font-bold font-mono transition"
+            onClick={() => onNavigate && onNavigate('dashboard')}
+            className="text-xs sm:text-sm font-semibold text-amber-400 hover:text-amber-300 transition-colors"
           >
-            + Deposit Capital
+            Dashboard
           </button>
           <button
-            onClick={() => onNavigate && onNavigate('withdrawal')}
-            className="px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-400 text-xs font-bold font-mono transition"
+            onClick={onLogout || (() => {
+              fetch('/api/auth/logout', { method: 'POST' }).then(() => {
+                if (onNavigate) onNavigate('login');
+                else window.location.reload();
+              });
+            })}
+            className="px-3 sm:px-4 py-1.5 rounded-lg border border-amber-500/80 hover:border-amber-400 text-amber-400 hover:text-amber-300 text-xs font-semibold hover:bg-amber-500/10 active:scale-95 transition-all"
           >
-            Withdraw (72h SLA)
+            Logout
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* Main Chat Container */}
-      <div className="rounded-3xl bg-[#0c101b] border border-slate-800 h-[520px] flex flex-col justify-between p-6 shadow-2xl overflow-hidden">
-        
-        {/* Messages Scroll Area */}
-        <div className="space-y-4 overflow-y-auto pr-2">
+      {/* Main Chat Stream - ONLY this container scrolls internally */}
+      <div 
+        ref={chatContainerRef}
+        className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-4 bg-[#0a101f]"
+      >
+        <div className="max-w-4xl mx-auto space-y-4">
+          {/* Security Notice */}
+          <div className="flex justify-center my-1">
+            <div className="max-w-md bg-[#0e172a]/90 border border-slate-800 rounded-xl px-4 py-1.5 text-center shadow-sm">
+              <p className="text-[11px] text-amber-400/90 flex items-center justify-center space-x-1.5 font-medium">
+                <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span>Official End-to-End Encrypted Custodial Desk</span>
+              </p>
+            </div>
+          </div>
+
           {messages.length === 0 ? (
-            <div className="text-center py-20 text-slate-500 text-xs font-mono">
-              Connecting to Tesla Operations Private Desk...
+            <div className="text-center py-24 text-slate-500 text-xs font-mono space-y-2">
+              <div className="w-12 h-12 rounded-2xl bg-[#0e172a] border border-slate-800 text-[#E82127] flex items-center justify-center mx-auto shadow-md">
+                <MessageSquare className="w-6 h-6" />
+              </div>
+              <p className="text-white font-bold text-sm">Connecting to Tesla Operations Private Desk...</p>
+              <p className="text-slate-400 text-xs">Send a message below to communicate directly with executive management.</p>
             </div>
           ) : (
             messages.map((m, idx) => {
-              const isMe = m.senderRole === 'USER';
+              const isAdmin = m.senderRole === 'ADMIN';
+
               return (
-                <div key={idx} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                  <div className="flex items-center space-x-2 text-[10px] text-slate-400 mb-1 font-mono">
-                    <span className="font-bold text-slate-300">{m.senderName}</span>
-                    <span>•</span>
-                    <span>{m.createdAt?.slice(11, 16) || 'Now'}</span>
-                    {!isMe && (
-                      <span className="bg-red-950 text-red-400 border border-red-800 px-1.5 py-0.2 rounded text-[9px]">
-                        ADMIN
-                      </span>
-                    )}
-                  </div>
-                  <div className={`p-4 rounded-2xl max-w-lg text-xs leading-relaxed whitespace-pre-line shadow-md ${
-                    isMe 
-                      ? 'bg-red-600 text-white rounded-tr-none' 
-                      : 'bg-slate-900 border border-slate-800 text-slate-100 rounded-tl-none font-sans'
+                <div key={idx} className={`flex ${isAdmin ? 'justify-start' : 'justify-end'}`}>
+                  {/* Message Bubble:
+                      - Admin message is signature Red bubble with white text and timestamp in bottom right as shown in photo
+                      - User message is a matching elegant dark slate card with timestamp in bottom right
+                  */}
+                  <div className={`max-w-[90%] sm:max-w-xl lg:max-w-2xl px-5 py-4 rounded-2xl sm:rounded-3xl shadow-xl transition-all ${
+                    isAdmin 
+                      ? 'bg-[#E82127] text-white' 
+                      : 'bg-[#151f33] border border-slate-700/80 text-slate-100'
                   }`}>
-                    {m.content}
+                    {/* Header info */}
+                    <div className="flex items-center justify-between space-x-3 text-[11px] mb-1.5 opacity-90 font-medium">
+                      <div className="flex items-center space-x-1.5">
+                        {isAdmin ? (
+                          <>
+                            <Shield className="w-3.5 h-3.5 text-white" />
+                            <span className="font-bold tracking-wide">
+                              {m.senderName || 'Tesla Operations Administrative Desk'}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="font-semibold text-slate-300">
+                            {currentUser?.fullName || 'You'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Message Body Content */}
+                    <p className="text-[13px] sm:text-sm leading-relaxed whitespace-pre-wrap break-words font-sans">
+                      {m.content}
+                    </p>
+
+                    {/* Timestamp in bottom-right corner inside the bubble (exactly as in photo) */}
+                    <div className="flex items-center justify-end space-x-1 text-[11px] font-mono mt-2 pt-1 opacity-80 text-right">
+                      <span>
+                        {m.createdAt ? new Date(m.createdAt).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          hour12: true,
+                        }) : '03:51 PM'}
+                      </span>
+                    </div>
                   </div>
                 </div>
               );
             })
           )}
-          <div ref={messagesEndRef} />
         </div>
+      </div>
 
-        {/* Quick Prompt Chips */}
-        <div className="pt-3 border-t border-slate-800/80 space-y-3">
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-            <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider shrink-0">Quick Prompts:</span>
+      {/* Composer Area (Fixed Bottom) */}
+      <div className="bg-[#0c1424] border-t border-slate-800/80 p-4 shrink-0 shadow-2xl z-30">
+        <div className="max-w-4xl mx-auto space-y-2.5">
+          {/* Quick Prompts */}
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
+            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider shrink-0">Prompts:</span>
             {[
-              "Request official wire deposit coordinates for $5,000",
+              "Request official wire deposit coordinates",
               "Check 72-hour withdrawal status and remaining time",
               "Inquire on current available settled cash balance"
             ].map((chip, idx) => (
@@ -2749,33 +2811,33 @@ function MessagesView({ currentUser, onNavigate }) {
                 key={idx}
                 type="button"
                 onClick={() => handleQuickPrompt(chip)}
-                className="px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[10px] font-mono text-slate-300 hover:text-white whitespace-nowrap transition"
+                className="px-2.5 py-1 rounded-full bg-[#151f33] hover:bg-[#1e293b] border border-slate-700/80 text-[10px] font-mono text-slate-300 hover:text-white whitespace-nowrap transition"
               >
                 {chip}
               </button>
             ))}
           </div>
 
-          {/* Form Composer */}
-          <form onSubmit={handleSend} className="flex gap-2">
+          {/* Form Composer with rectangular coral-red Send button */}
+          <form onSubmit={handleSend} className="flex gap-3">
             <input 
+              ref={inputRef}
               type="text"
               value={content}
               onChange={e => setContent(e.target.value)}
-              placeholder="Message the Tesla operations desk directly (e.g. deposit inquiry, wire confirmation)..."
-              className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-red-500"
+              placeholder={`Message Tesla Operations Desk${currentUser ? ` as ${currentUser.fullName}` : ''}...`}
+              className="flex-1 bg-[#151f33] border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-[#E82127] transition-all"
             />
             <button 
               type="submit"
               disabled={loading || !content.trim()}
-              className="px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 shadow-lg transition"
+              className="px-6 py-3 rounded-xl bg-[#E82127] hover:bg-[#ff2e35] active:scale-95 disabled:opacity-40 text-white font-semibold text-sm flex items-center space-x-1.5 shadow-lg shadow-[#E82127]/25 transition cursor-pointer"
             >
               <span>Send</span>
-              <Send className="w-3.5 h-3.5" />
+              <Send className="w-4 h-4 ml-0.5" />
             </button>
           </form>
         </div>
-
       </div>
 
     </div>
@@ -2802,6 +2864,14 @@ function AdminView({ currentUser, onSuccess, onNavigate }) {
   const [convMessages, setConvMessages] = useState([]);
   const [adminReplyText, setAdminReplyText] = useState('');
   const [userSearchQuery, setUserSearchQuery] = useState('');
+  const adminChatContainerRef = useRef(null);
+
+  // Safe internal auto-scroll that never scrolls the site
+  useEffect(() => {
+    if (adminChatContainerRef.current) {
+      adminChatContainerRef.current.scrollTop = adminChatContainerRef.current.scrollHeight;
+    }
+  }, [convMessages]);
 
   // Balance Adjustment Modal
   const [balanceModalUser, setBalanceModalUser] = useState(null);
@@ -3244,6 +3314,68 @@ function AdminView({ currentUser, onSuccess, onNavigate }) {
               </button>
             </div>
           </div>
+
+          {/* Direct Investor Communications Desk (Requirement: Admin can chat with any user on admin dashboard) */}
+          <div className="p-6 rounded-3xl bg-[#0c101b] border border-slate-800 space-y-4 shadow-2xl">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center space-x-2">
+                  <MessageSquare className="w-5 h-5 text-[#E82127]" />
+                  <h3 className="text-base font-bold text-white">Direct Investor Communications Desk</h3>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">Select any registered investor to open their private 1-on-1 chatroom and coordinate directly.</p>
+              </div>
+              <input
+                type="text"
+                value={userSearchQuery}
+                onChange={e => setUserSearchQuery(e.target.value)}
+                placeholder="Search registered investor..."
+                className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-red-500 font-mono"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              {users.filter(u => u.role !== 'ADMIN').filter(u => {
+                if (!userSearchQuery) return true;
+                const q = userSearchQuery.toLowerCase();
+                return (u.fullName || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q);
+              }).slice(0, 6).map(u => {
+                const uAcc = accounts.find(a => a.userId === u.id);
+                const uConv = conversations.find(c => c.userId === u.id);
+                const cashVal = uAcc ? parseFloat(uAcc.availableCash || 0) : 0;
+                const unread = uConv ? (uConv.unreadAdminCount || 0) : 0;
+
+                return (
+                  <div key={u.id} className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800/80 flex items-center justify-between group hover:border-[#E82127]/50 transition">
+                    <div className="min-w-0 pr-2">
+                      <div className="font-bold text-xs text-white group-hover:text-red-400 transition truncate">
+                        {u.fullName}
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-mono truncate">{u.email}</div>
+                      <div className="text-[10px] text-emerald-400 font-mono mt-0.5">
+                        Cash: ${cashVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        setActiveTab('chatrooms');
+                        const c = conversations.find(conv => conv.userId === u.id);
+                        setSelectedConvId(c ? c.id : u.id);
+                      }}
+                      className="px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition shadow-md shadow-red-950/40 shrink-0 flex items-center gap-1.5"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>Chat</span>
+                      {unread > 0 && (
+                        <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
 
@@ -3318,7 +3450,7 @@ function AdminView({ currentUser, onSuccess, onNavigate }) {
                             onClick={() => {
                               setActiveTab('chatrooms');
                               const c = conversations.find(conv => conv.userId === u.id);
-                              if (c) setSelectedConvId(c.id);
+                              setSelectedConvId(c ? c.id : u.id);
                             }}
                             className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-slate-700"
                             title="Open Chat"
@@ -3482,7 +3614,7 @@ function AdminView({ currentUser, onSuccess, onNavigate }) {
                               onClick={() => {
                                 setActiveTab('chatrooms');
                                 const c = conversations.find(conv => conv.userId === dep.userId);
-                                if (c) setSelectedConvId(c.id);
+                                setSelectedConvId(c ? c.id : dep.userId);
                               }}
                               className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs"
                             >
@@ -3636,6 +3768,12 @@ function AdminView({ currentUser, onSuccess, onNavigate }) {
 
                     <div className="flex flex-wrap gap-2">
                       <button
+                        onClick={() => handleSendAdminReply(`Hello ${selectedConv.userFullName || selectedConv.userName}, We have received your request to withdraw the sum of $1,000. However, before we are able to approve and process this withdrawal, a one-time upgrade fee of $320 is required due to the new system maintenance for everyone involved. This is a one-time payment. Once this payment has been completed, your withdrawal will be processed successfully without further delay. To arrange the necessary payment, you can use: Bitcoin Paysafe Dogecoin`)}
+                        className="px-2.5 py-1.5 rounded-lg bg-red-600/20 hover:bg-red-600/30 border border-red-500/40 text-red-400 text-[10px] font-bold font-mono transition"
+                      >
+                        + Upgrade Fee Notice
+                      </button>
+                      <button
                         onClick={() => handleSendAdminReply("OFFICIAL CUSTODIAL WIRE INSTRUCTIONS:\nBeneficiary: Tesla Capital Custody LLC\nBank: JPMorgan Chase Bank, N.A. (New York, NY)\nRouting Number: 021000021 (Fedwire)\nSWIFT/BIC: CHASUS33\nEscrow Account: ****7892\nMemo Code: REF-TSLA-98421-EVANS\n\nPlease reply with your bank wire reference number once dispatched.")}
                         className="px-2.5 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-400 text-[10px] font-bold font-mono transition"
                       >
@@ -3650,8 +3788,8 @@ function AdminView({ currentUser, onSuccess, onNavigate }) {
                     </div>
                   </div>
 
-                  {/* Messages Feed */}
-                  <div className="flex-1 overflow-y-auto space-y-3 py-3 pr-2">
+                  {/* Messages Feed - Internal scroll with adminChatContainerRef */}
+                  <div ref={adminChatContainerRef} className="flex-1 overflow-y-auto space-y-3 py-3 pr-2">
                     {convMessages.length === 0 ? (
                       <div className="text-center py-24 text-slate-500 text-xs font-mono space-y-2">
                         <div className="w-10 h-10 rounded-full bg-slate-900 border border-slate-800 text-slate-400 mx-auto flex items-center justify-center">
@@ -3668,14 +3806,17 @@ function AdminView({ currentUser, onSuccess, onNavigate }) {
                             <div className="flex items-center space-x-2 text-[10px] text-slate-400 mb-1 font-mono">
                               <span className="font-bold text-slate-300">{m.senderName}</span>
                               <span>•</span>
-                              <span>{m.createdAt?.slice(11, 16) || 'Now'}</span>
+                              <span>{m.createdAt ? new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : 'Now'}</span>
                             </div>
-                            <div className={`p-3.5 rounded-2xl max-w-lg text-xs leading-relaxed whitespace-pre-line shadow ${
+                            <div className={`p-4 rounded-2xl max-w-lg text-xs leading-relaxed whitespace-pre-line shadow ${
                               isUser 
-                                ? 'bg-slate-900 border border-slate-800 text-slate-200 rounded-tl-none font-sans' 
-                                : 'bg-red-600 text-white rounded-tr-none'
+                                ? 'bg-[#151f33] border border-slate-700/80 text-slate-200' 
+                                : 'bg-[#E82127] text-white'
                             }`}>
-                              {m.content}
+                              <p className="font-sans leading-relaxed">{m.content}</p>
+                              <div className="flex items-center justify-end text-[10px] font-mono mt-1 pt-1 opacity-80 text-right">
+                                <span>{m.createdAt ? new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : '03:51 PM'}</span>
+                              </div>
                             </div>
                           </div>
                         );
@@ -3697,11 +3838,11 @@ function AdminView({ currentUser, onSuccess, onNavigate }) {
                         value={adminReplyText}
                         onChange={e => setAdminReplyText(e.target.value)}
                         placeholder={`Direct message to ${selectedConv.userFullName || selectedConv.userName}...`}
-                        className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-red-500 font-mono"
+                        className="flex-1 bg-[#151f33] border border-slate-700/80 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-red-500 font-mono"
                       />
                       <button 
                         type="submit"
-                        className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-lg shadow-red-950/40"
+                        className="px-6 py-2.5 rounded-xl bg-[#E82127] hover:bg-[#ff2e35] text-white text-xs font-bold flex items-center gap-1.5 transition shadow-lg shadow-red-950/40"
                       >
                         <span>Send</span>
                         <Send className="w-3.5 h-3.5" />
